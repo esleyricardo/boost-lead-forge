@@ -1,73 +1,77 @@
-# Welcome to your Lovable project
+# PGFN Devedores — Monitor da Dívida Ativa
 
-## Project info
+Aplicação web que baixa automaticamente os Dados Abertos da PGFN (dívida ativa da União),
+monta uma base pesquisável de empresas devedoras e enriquece os contatos
+(telefone, email, sócios) via API OpenCNPJ — para prospecção e análise.
 
-**URL**: https://lovable.dev/projects/5ac8c5e3-b354-4404-9109-51cae13a6cc3
+## Funcionalidades
 
-## How can I edit this code?
+- **Sincronização automática diária**: o servidor baixa os arquivos trimestrais da
+  PGFN todos os dias no horário configurado (padrão 06:00, fuso de Brasília),
+  descobre sozinho o trimestre mais recente publicado e detecta o que entrou de novo na base.
+- **Data de inclusão da dívida**: cada dívida guarda a **data oficial de inscrição
+  na Dívida Ativa** (campo `DATA_INSCRICAO` do CSV da PGFN) **e** a data em que o
+  sistema a detectou pela primeira vez. Empresas que entraram na última
+  sincronização recebem o selo **"Nova"**.
+- **Controle de usuários com liberação**: qualquer pessoa pode se cadastrar, mas o
+  acesso só é ativado depois que um administrador **libera** o usuário na tela
+  de Usuários. O primeiro usuário cadastrado vira admin automaticamente.
+- **Enriquecimento seletivo**: selecione as empresas desejadas na tabela e clique
+  em "Enriquecer selecionadas" — o sistema busca telefones, email, sócios e CNAE
+  no OpenCNPJ em segundo plano, com barra de progresso.
+- **Histórico de enriquecidas**: página própria listando todas as empresas já
+  enriquecidas, quando e por quem.
+- **Exportação Excel** com filtros ou com a seleção atual.
+- Filtros por natureza da dívida (Previdenciário, Simples Nacional, Demais
+  Débitos), UF, faixa de valor, busca por razão social/CNPJ e "só novas".
 
-There are several ways of editing your application.
+## Stack
 
-**Use Lovable**
+- **Backend**: Node.js + Express + SQLite (better-sqlite3) + node-cron
+- **Frontend**: React + Vite + Tailwind + shadcn/ui + TanStack Query
+- **Autenticação**: JWT + bcrypt
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/5ac8c5e3-b354-4404-9109-51cae13a6cc3) and start prompting.
+## Como rodar
 
-Changes made via Lovable will be committed automatically to this repo.
+```bash
+npm install
 
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Desenvolvimento (API na porta 3001 + frontend na 8080 com proxy)
 npm run dev
+
+# Produção
+npm run build      # gera o frontend em dist/
+npm start          # sobe o servidor na porta 3001 servindo API + frontend
 ```
 
-**Edit a file directly in GitHub**
+Acesse http://localhost:8080 (dev) ou http://localhost:3001 (produção).
+O primeiro cadastro feito no sistema vira administrador.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### Variáveis de ambiente (opcionais)
 
-**Use GitHub Codespaces**
+| Variável     | Padrão            | Descrição                                   |
+| ------------ | ----------------- | ------------------------------------------- |
+| `PORT`       | `3001`            | Porta do servidor                           |
+| `JWT_SECRET` | (valor de dev)    | **Defina em produção** — segredo dos tokens |
+| `DATA_DIR`   | `./data`          | Pasta do banco SQLite                       |
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+### Primeira carga de dados
 
-## What technologies are used for this project?
+Depois de entrar, vá em **Sincronização → Executar sincronização**. Os arquivos da
+PGFN são grandes (centenas de MB) e a primeira importação pode levar bastante tempo.
+Depois disso a atualização acontece sozinha, todos os dias.
 
-This project is built with:
+## Testes
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+```bash
+npm test
+```
 
-## How can I deploy this project?
+Cobre o parser do CSV da PGFN, o pipeline de upsert/consolidação, a detecção de
+novas empresas, os filtros, o fluxo de aprovação de usuários e o gerador de Excel.
 
-Simply open [Lovable](https://lovable.dev/projects/5ac8c5e3-b354-4404-9109-51cae13a6cc3) and click on Share -> Publish.
+## Fontes de dados
 
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+- PGFN Dados Abertos: https://dadosabertos.pgfn.gov.br (arquivos trimestrais
+  `Dados_abertos_Previdenciario.zip` e `Dados_abertos_Nao_Previdenciario.zip`)
+- OpenCNPJ: https://api.opencnpj.org
