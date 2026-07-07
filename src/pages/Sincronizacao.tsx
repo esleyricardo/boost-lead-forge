@@ -74,7 +74,7 @@ export default function Sincronizacao() {
   const emAndamento = config?.executando || historico?.some((s) => s.status === "running");
 
   const executar = useMutation({
-    mutationFn: () => api.post("/sync/executar"),
+    mutationFn: (forcar: boolean) => api.post("/sync/executar", { forcar }),
     onSuccess: () => {
       toast.success("Sincronização iniciada. Acompanhe o progresso abaixo.");
       queryClient.invalidateQueries({ queryKey: ["sync-historico"] });
@@ -184,13 +184,13 @@ export default function Sincronizacao() {
               <RefreshCw className="h-4 w-4" /> Sincronizar agora
             </CardTitle>
             <CardDescription>
-              Baixa e processa os arquivos trimestrais da PGFN imediatamente. O download é grande
-              (centenas de MB) e pode levar vários minutos.
+              O sistema primeiro confere se a PGFN publicou algo novo. Só baixa a base (que é
+              grande) quando há um trimestre novo — se nada mudou, encerra em segundos.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <Button
-              onClick={() => executar.mutate()}
+              onClick={() => executar.mutate(false)}
               disabled={emAndamento || executar.isPending}
               className="w-full"
             >
@@ -200,9 +200,19 @@ export default function Sincronizacao() {
                 </>
               ) : (
                 <>
-                  <PlayCircle className="mr-2 h-4 w-4" /> Executar sincronização
+                  <PlayCircle className="mr-2 h-4 w-4" /> Verificar e sincronizar
                 </>
               )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full text-muted-foreground"
+              onClick={() => executar.mutate(true)}
+              disabled={emAndamento || executar.isPending}
+              title="Baixa e reprocessa a base inteira mesmo que nada tenha mudado (demora horas)"
+            >
+              Forçar reprocessamento completo
             </Button>
             {syncAtual?.progresso && (
               <div className="rounded-md border bg-muted/50 p-3 text-sm">

@@ -216,8 +216,9 @@ api.post(
   requireAuth,
   handle((req, res) => {
     if (isSincronizando()) throw new HttpError(409, "Já existe uma sincronização em andamento.");
+    const forcar = (req.body || {}).forcar === true;
     // Dispara em segundo plano; o acompanhamento é feito pelo histórico
-    executarSincronizacao("manual").catch((err) =>
+    executarSincronizacao("manual", forcar).catch((err) =>
       console.error("[Sync manual] Erro:", err instanceof Error ? err.message : err)
     );
     res.status(202).json({ ok: true });

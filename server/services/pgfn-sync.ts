@@ -16,7 +16,7 @@ import * as https from "https";
 import * as os from "os";
 import * as path from "path";
 import unzipper from "unzipper";
-import { db, setConfig } from "../db";
+import { db, getConfig, setConfig } from "../db";
 import type { Sincronizacao } from "../../shared/types";
 
 const PGFN_BASE = "https://dadosabertos.pgfn.gov.br";
@@ -64,6 +64,34 @@ function headOk(url: string): Promise<boolean> {
     req.on("timeout", () => {
       req.destroy();
       resolve(false);
+    });
+    req.end();
+  });
+}
+
+/**
+ * "Impressão digital" de um arquivo da PGFN (data de modificação + tamanho),
+ * obtida por uma requisição HEAD leve — sem baixar o arquivo. Serve para
+ * saber se o arquivo mudou desde a última sincronização.
+ */
+function assinaturaArquivo(url: string, redirects = 0): Promise<string | null> {
+  return new Promise((resolve) => {
+    if (redirects > 5) return resolve(null);
+    const req = https.request(url, { method: "HEAD", timeout: 20000 }, (res) => {
+      res.resume();
+      if (res.statusCode && [301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
+        assinaturaArquivo(res.headers.location, redirects + 1).then(resolve);
+        return;
+      }
+      if (res.statusCode !== 200) return resolve(null);
+      const lastModified = res.headers["last-modified"] || "";
+      const contentLength = res.headers["content-length"] || "";
+      resolve(`${lastModified}|${contentLength}`);
+    });
+    req.on("error", () => resolve(null));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(null);
     });
     req.end();
   });
@@ -338,7 +366,10 @@ async function processarCsv(
   });
 }
 
-export async function executarSincronizacao(disparo: "manual" | "automatica"): Promise<Sincronizacao> {
+export async function executarSincronizacao(
+  disparo: "manual" | "automatica",
+  forcar = false
+): Promise<Sincronizacao> {
   if (syncEmAndamento) {
     throw new Error("Já existe uma sincronização em andamento. Aguarde a conclusão.");
   }
@@ -358,6 +389,40 @@ export async function executarSincronizacao(disparo: "manual" | "automatica"): P
     atualizarProgresso(syncId, "Verificando trimestre disponível na PGFN...");
     const trimestre = await descobrirTrimestre();
     db.prepare("UPDATE sincronizacoes SET trimestre_referencia = ? WHERE id = ?").run(trimestre, syncId);
+
+    // Verificação leve: a PGFN publica os dados de forma TRIMESTRAL, não diária.
+    // Antes de baixar (o que leva horas), consultamos só o "cabeçalho" dos arquivos
+    // para ver se algo mudou desde a última vez. Se não mudou, encerramos em segundos.
+    atualizarProgresso(syncId, "Verificando se há atualização nova na PGFN...");
+    const partes: string[] = [];
+    for (const arquivo of ARQUIVOS) {
+      const a = await assinaturaArquivo(urlArquivo(trimestre, arquivo));
+      partes.push(`${arquivo}:${a ?? "?"}`);
+    }
+    const assinaturaAtual = `${trimestre}|${partes.join("|")}`;
+    const assinaturaAnterior = getConfig("assinatura_pgfn");
+
+    if (!forcar && dividasAntes > 0 && assinaturaAtual === assinaturaAnterior) {
+      const vivos = db
+        .prepare(
+          `SELECT (SELECT COUNT(*) FROM dividas WHERE ativa = 1) AS d,
+                  (SELECT COUNT(*) FROM empresas WHERE qtd_dividas > 0) AS e`
+        )
+        .get() as { d: number; e: number };
+      db.prepare(
+        `UPDATE sincronizacoes SET
+           status = 'completed', total_dividas = ?, total_empresas = ?,
+           novas_dividas = 0, novas_empresas = 0, progresso = ?, concluida_em = datetime('now')
+         WHERE id = ?`
+      ).run(
+        vivos.d,
+        vivos.e,
+        `Sem novidades: a base da PGFN (${trimestre}) não mudou desde a última sincronização. Nada foi baixado.`,
+        syncId
+      );
+      setConfig("ultima_sincronizacao", new Date().toISOString());
+      return getSincronizacao(syncId)!;
+    }
 
     let totalLinhas = 0;
     for (const arquivo of ARQUIVOS) {
@@ -414,6 +479,7 @@ export async function executarSincronizacao(disparo: "manual" | "automatica"): P
       syncId
     );
 
+    setConfig("assinatura_pgfn", assinaturaAtual);
     setConfig("ultima_sincronizacao", new Date().toISOString());
     return getSincronizacao(syncId)!;
   } catch (error) {
