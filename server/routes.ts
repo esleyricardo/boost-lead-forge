@@ -30,6 +30,11 @@ import type { DashboardMetrics, EmpresasFiltro, SyncConfig } from "../shared/typ
 
 export const api = Router();
 
+// Usado pelos serviços de hospedagem para verificar que o app está no ar
+api.get("/health", (_req, res) => {
+  res.json({ ok: true });
+});
+
 function handle(fn: (req: AuthRequest, res: Response) => void | Promise<void>) {
   return async (req: AuthRequest, res: Response) => {
     try {
