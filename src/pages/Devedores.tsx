@@ -59,6 +59,8 @@ function filtroParaQuery(f: EmpresasFiltro): string {
 export default function Devedores() {
   const queryClient = useQueryClient();
   const [busca, setBusca] = useState("");
+  const [valorMinTexto, setValorMinTexto] = useState("");
+  const [valorMaxTexto, setValorMaxTexto] = useState("");
   const [filtro, setFiltro] = useState<EmpresasFiltro>({
     page: 1,
     pageSize: 25,
@@ -86,6 +88,21 @@ export default function Devedores() {
 
   function atualizarFiltro(mudancas: Partial<EmpresasFiltro>) {
     setFiltro((f) => ({ ...f, ...mudancas, page: mudancas.page ?? 1 }));
+  }
+
+  function pesquisar() {
+    atualizarFiltro({
+      busca: busca.trim() || undefined,
+      valorMin: valorMinTexto ? Number(valorMinTexto) : undefined,
+      valorMax: valorMaxTexto ? Number(valorMaxTexto) : undefined,
+    });
+  }
+
+  function limparFiltros() {
+    setBusca("");
+    setValorMinTexto("");
+    setValorMaxTexto("");
+    setFiltro({ page: 1, pageSize: 25, orderBy: "valorTotal", orderDir: "desc" });
   }
 
   const todosDaPaginaSelecionados = useMemo(
@@ -186,102 +203,119 @@ export default function Devedores() {
       )}
 
       <Card>
-        <CardContent className="flex flex-wrap items-end gap-3 pt-4">
-          <div className="min-w-56 flex-1">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                atualizarFiltro({ busca });
-              }}
-              className="flex gap-2"
-            >
+        <CardContent className="pt-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              pesquisar();
+            }}
+            className="flex flex-wrap items-end gap-3"
+          >
+            <div className="min-w-64 flex-1 space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                Empresa (nome ou CNPJ)
+              </label>
               <Input
-                placeholder="Buscar por razão social ou CNPJ..."
+                placeholder="Digite o nome da empresa ou o CNPJ..."
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
               />
-              <Button type="submit" variant="secondary" size="icon">
-                <Search className="h-4 w-4" />
-              </Button>
-            </form>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Valor mínimo (R$)</label>
+              <Input
+                type="number"
+                placeholder="Ex: 100000"
+                className="w-36"
+                value={valorMinTexto}
+                onChange={(e) => setValorMinTexto(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Valor máximo (R$)</label>
+              <Input
+                type="number"
+                placeholder="Ex: 5000000"
+                className="w-36"
+                value={valorMaxTexto}
+                onChange={(e) => setValorMaxTexto(e.target.value)}
+              />
+            </div>
+
+            <Button type="submit">
+              <Search className="mr-2 h-4 w-4" />
+              Pesquisar
+            </Button>
+            <Button type="button" variant="ghost" onClick={limparFiltros}>
+              Limpar
+            </Button>
+          </form>
+
+          <div className="mt-3 flex flex-wrap items-center gap-3 border-t pt-3">
+            <Select
+              value={filtro.natureza || TODAS}
+              onValueChange={(v) => atualizarFiltro({ natureza: v === TODAS ? undefined : v })}
+            >
+              <SelectTrigger className="w-56">
+                <SelectValue placeholder="Natureza da dívida" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={TODAS}>Todas as naturezas</SelectItem>
+                {NATUREZAS_DIVIDA.map((n) => (
+                  <SelectItem key={n} value={n}>
+                    {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={filtro.uf || TODAS}
+              onValueChange={(v) => atualizarFiltro({ uf: v === TODAS ? undefined : v })}
+            >
+              <SelectTrigger className="w-32">
+                <SelectValue placeholder="Estado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={TODAS}>Todos estados</SelectItem>
+                {UFS.map((uf) => (
+                  <SelectItem key={uf} value={uf}>
+                    {uf}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={filtro.enriquecidas || TODAS}
+              onValueChange={(v) =>
+                atualizarFiltro({
+                  enriquecidas: v === TODAS ? undefined : (v as "sim" | "nao"),
+                })
+              }
+            >
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Enriquecimento" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={TODAS}>Enriquecidas ou não</SelectItem>
+                <SelectItem value="sim">Só enriquecidas</SelectItem>
+                <SelectItem value="nao">Só não enriquecidas</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <label className="flex items-center gap-2 text-sm">
+              <Switch
+                checked={!!filtro.apenasNovas}
+                onCheckedChange={(v) => atualizarFiltro({ apenasNovas: v })}
+              />
+              Só novas
+            </label>
+            <span className="ml-auto text-xs text-muted-foreground">
+              Estes filtros são aplicados na hora, sem precisar clicar em Pesquisar
+            </span>
           </div>
-
-          <Select
-            value={filtro.natureza || TODAS}
-            onValueChange={(v) => atualizarFiltro({ natureza: v === TODAS ? undefined : v })}
-          >
-            <SelectTrigger className="w-56">
-              <SelectValue placeholder="Natureza da dívida" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={TODAS}>Todas as naturezas</SelectItem>
-              {NATUREZAS_DIVIDA.map((n) => (
-                <SelectItem key={n} value={n}>
-                  {n}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={filtro.uf || TODAS}
-            onValueChange={(v) => atualizarFiltro({ uf: v === TODAS ? undefined : v })}
-          >
-            <SelectTrigger className="w-24">
-              <SelectValue placeholder="UF" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={TODAS}>UF</SelectItem>
-              {UFS.map((uf) => (
-                <SelectItem key={uf} value={uf}>
-                  {uf}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Input
-            type="number"
-            placeholder="Valor mín."
-            className="w-32"
-            onChange={(e) =>
-              atualizarFiltro({ valorMin: e.target.value ? Number(e.target.value) : undefined })
-            }
-          />
-          <Input
-            type="number"
-            placeholder="Valor máx."
-            className="w-32"
-            onChange={(e) =>
-              atualizarFiltro({ valorMax: e.target.value ? Number(e.target.value) : undefined })
-            }
-          />
-
-          <Select
-            value={filtro.enriquecidas || TODAS}
-            onValueChange={(v) =>
-              atualizarFiltro({
-                enriquecidas: v === TODAS ? undefined : (v as "sim" | "nao"),
-              })
-            }
-          >
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="Enriquecimento" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={TODAS}>Enriquecidas ou não</SelectItem>
-              <SelectItem value="sim">Só enriquecidas</SelectItem>
-              <SelectItem value="nao">Só não enriquecidas</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <label className="flex items-center gap-2 text-sm">
-            <Switch
-              checked={!!filtro.apenasNovas}
-              onCheckedChange={(v) => atualizarFiltro({ apenasNovas: v })}
-            />
-            Só novas
-          </label>
         </CardContent>
       </Card>
 
