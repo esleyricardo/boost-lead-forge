@@ -20,7 +20,7 @@ import { db, getConfig, setConfig } from "../db";
 import type { Sincronizacao } from "../../shared/types";
 
 const PGFN_BASE = "https://dadosabertos.pgfn.gov.br";
-const ARQUIVOS = ["Previdenciario", "Nao_Previdenciario"] as const;
+export const ARQUIVOS = ["Previdenciario", "Nao_Previdenciario"] as const;
 
 let syncEmAndamento = false;
 
@@ -46,11 +46,11 @@ export function trimestresCandidatos(n = 6, ref = new Date()): string[] {
   return out;
 }
 
-function urlArquivo(trimestre: string, arquivo: string): string {
+export function urlArquivo(trimestre: string, arquivo: string): string {
   return `${PGFN_BASE}/${trimestre}/Dados_abertos_${arquivo}.zip`;
 }
 
-function headOk(url: string): Promise<boolean> {
+export function headOk(url: string): Promise<boolean> {
   return new Promise((resolve) => {
     const req = https.request(url, { method: "HEAD", timeout: 20000 }, (res) => {
       res.resume();
@@ -109,7 +109,7 @@ export async function descobrirTrimestre(): Promise<string> {
 
 // ---------- Download / extração ----------
 
-function downloadFile(url: string, destPath: string, redirects = 0): Promise<void> {
+export function downloadFile(url: string, destPath: string, redirects = 0): Promise<void> {
   return new Promise((resolve, reject) => {
     if (redirects > 5) return reject(new Error("Muitos redirecionamentos ao baixar " + url));
     const file = fs.createWriteStream(destPath);
@@ -139,7 +139,7 @@ function downloadFile(url: string, destPath: string, redirects = 0): Promise<voi
   });
 }
 
-async function extrairZip(zipPath: string, extractDir: string): Promise<string[]> {
+export async function extrairZip(zipPath: string, extractDir: string): Promise<string[]> {
   const directory = await unzipper.Open.file(zipPath);
   const csvs: string[] = [];
   for (const entry of directory.files) {
@@ -273,8 +273,14 @@ export function inserirLote(linhas: LinhaDivida[], syncId: number): void {
   tx(linhas);
 }
 
-/** Recalcula a tabela de empresas a partir das dívidas ativas. */
-export function consolidarEmpresas(syncId: number): void {
+/**
+ * Recalcula a tabela de empresas a partir das dívidas ativas.
+ * Quando `trimestreNovas` é informado (sincronizações após a carga inicial),
+ * empresas que aparecem pela primeira vez são marcadas com o trimestre em que
+ * entraram na base — mantendo o comparativo de trimestres atualizado sem
+ * downloads extras.
+ */
+export function consolidarEmpresas(syncId: number, trimestreNovas: string | null = null): void {
   // Dívidas que sumiram da base da PGFN deixam de contar como ativas
   db.prepare("UPDATE dividas SET ativa = CASE WHEN ultima_sync_id = ? THEN 1 ELSE 0 END").run(syncId);
 
@@ -282,7 +288,7 @@ export function consolidarEmpresas(syncId: number): void {
     `INSERT INTO empresas (
        cnpj, razao_social, uf, naturezas, qtd_dividas, valor_total,
        data_inscricao_mais_antiga, data_inscricao_mais_recente,
-       data_primeira_deteccao, primeira_sync_id
+       data_primeira_deteccao, primeira_sync_id, entrou_na_base_em
      )
      SELECT
        d.cnpj,
@@ -294,7 +300,8 @@ export function consolidarEmpresas(syncId: number): void {
        MIN(d.data_inscricao),
        MAX(d.data_inscricao),
        datetime('now'),
-       @syncId
+       @syncId,
+       @trimestreNovas
      FROM dividas d
      WHERE d.ativa = 1
      GROUP BY d.cnpj
@@ -306,7 +313,7 @@ export function consolidarEmpresas(syncId: number): void {
        valor_total = excluded.valor_total,
        data_inscricao_mais_antiga = excluded.data_inscricao_mais_antiga,
        data_inscricao_mais_recente = excluded.data_inscricao_mais_recente`
-  ).run({ syncId });
+  ).run({ syncId, trimestreNovas });
 
   // Empresas cujas dívidas todas saíram da base: zera contadores mas mantém o histórico
   db.prepare(
@@ -389,6 +396,8 @@ export async function executarSincronizacao(
     atualizarProgresso(syncId, "Verificando trimestre disponível na PGFN...");
     const trimestre = await descobrirTrimestre();
     db.prepare("UPDATE sincronizacoes SET trimestre_referencia = ? WHERE id = ?").run(trimestre, syncId);
+    // O filtro "entraram no último trimestre" usa este valor como referência
+    setConfig("trimestre_atual", trimestre);
 
     // Verificação leve: a PGFN publica os dados de forma TRIMESTRAL, não diária.
     // Antes de baixar (o que leva horas), consultamos só o "cabeçalho" dos arquivos
@@ -452,7 +461,8 @@ export async function executarSincronizacao(
     }
 
     atualizarProgresso(syncId, "Consolidando dados por empresa...");
-    consolidarEmpresas(syncId);
+    // Na 1ª carga tudo é "novo" — não marca trimestre de entrada (usa o comparativo p/ isso)
+    consolidarEmpresas(syncId, dividasAntes > 0 ? trimestre : null);
 
     const stats = db
       .prepare(

@@ -53,6 +53,12 @@ export interface Empresa {
   dataPrimeiraDeteccao: string;
   /** true se a empresa entrou na base na última sincronização concluída */
   isNova: boolean;
+  /**
+   * Trimestre PGFN (ex: "2026_trimestre_01") em que a empresa ENTROU na base,
+   * apurado pelo comparativo último × penúltimo trimestre. null = já estava antes
+   * (ou o comparativo ainda não foi executado).
+   */
+  entrouNaBaseEm: string | null;
   // Enriquecimento (OpenCNPJ)
   telefones: string | null;
   email: string | null;
@@ -94,6 +100,8 @@ export interface EmpresasFiltro {
   valorMin?: number;
   valorMax?: number;
   apenasNovas?: boolean;
+  /** Apenas empresas que entraram na base no último trimestre (via comparativo) */
+  entrouUltimoTrimestre?: boolean;
   enriquecidas?: "sim" | "nao";
   page?: number;
   pageSize?: number;
@@ -133,6 +141,25 @@ export interface SyncConfig {
   ultimaSincronizacao: string | null;
   proximaExecucao: string | null;
   executando: boolean;
+}
+
+// ---------- Comparativo de trimestres ----------
+
+export interface ComparativoResultado {
+  /** Trimestre mais recente (o que está carregado na base) */
+  trimestreAtual: string;
+  /** Trimestre anterior usado como referência da comparação */
+  trimestreAnterior: string;
+  /** Quantas empresas estão na base atual mas não estavam no trimestre anterior */
+  empresasNovas: number;
+  executadoEm: string;
+}
+
+export interface ComparativoStatus {
+  executando: boolean;
+  etapa: string | null;
+  errorMessage: string | null;
+  resultado: ComparativoResultado | null;
 }
 
 // ---------- Enriquecimento ----------

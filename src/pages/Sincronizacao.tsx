@@ -4,12 +4,13 @@ import {
   AlertCircle,
   CalendarClock,
   CheckCircle2,
+  GitCompareArrows,
   Loader2,
   PlayCircle,
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { Sincronizacao as Sync, SyncConfig } from "@shared/types";
+import type { ComparativoStatus, Sincronizacao as Sync, SyncConfig } from "@shared/types";
 import { api, formatarDataHora } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +33,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+
+/** "2026_trimestre_01" -> "1º trimestre de 2026" */
+function formatarTrimestre(t: string | null | undefined): string {
+  if (!t) return "—";
+  const m = t.match(/^(\d{4})_trimestre_0([1-4])$/);
+  return m ? `${m[2]}º trimestre de ${m[1]}` : t;
+}
 
 function StatusBadge({ s }: { s: Sync }) {
   if (s.status === "running")
@@ -72,6 +80,22 @@ export default function Sincronizacao() {
   });
 
   const emAndamento = config?.executando || historico?.some((s) => s.status === "running");
+
+  const { data: comparativo } = useQuery({
+    queryKey: ["comparativo-status"],
+    queryFn: () => api.get<ComparativoStatus>("/comparativo/status"),
+    refetchInterval: (q) => (q.state.data?.executando ? 3000 : 15_000),
+  });
+
+  const executarComparativo = useMutation({
+    mutationFn: () => api.post("/comparativo/executar", {}),
+    onSuccess: () => {
+      toast.success("Comparativo iniciado. Ele baixa a base do trimestre anterior; acompanhe abaixo.");
+      queryClient.invalidateQueries({ queryKey: ["comparativo-status"] });
+    },
+    onError: (err) =>
+      toast.error(err instanceof Error ? err.message : "Falha ao iniciar o comparativo."),
+  });
 
   const executar = useMutation({
     mutationFn: (forcar: boolean) => api.post("/sync/executar", { forcar }),
@@ -223,6 +247,57 @@ export default function Sincronizacao() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <GitCompareArrows className="h-4 w-4" /> Comparativo de trimestres
+          </CardTitle>
+          <CardDescription>
+            Compara a base atual com a do trimestre anterior da PGFN e marca as empresas que{" "}
+            <strong>entraram na base no último trimestre</strong>. Depois, use o filtro
+            &quot;Entraram no último trimestre&quot; na aba Devedores. O processo baixa a base
+            anterior inteira e pode demorar.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button
+            onClick={() => executarComparativo.mutate()}
+            disabled={comparativo?.executando || emAndamento || executarComparativo.isPending}
+          >
+            {comparativo?.executando ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Comparativo em andamento...
+              </>
+            ) : (
+              <>
+                <GitCompareArrows className="mr-2 h-4 w-4" /> Comparar último × penúltimo trimestre
+              </>
+            )}
+          </Button>
+          {comparativo?.executando && comparativo.etapa && (
+            <div className="rounded-md border bg-muted/50 p-3 text-sm">
+              <p className="font-medium">Progresso:</p>
+              <p className="text-muted-foreground">{comparativo.etapa}</p>
+            </div>
+          )}
+          {!comparativo?.executando && comparativo?.errorMessage && (
+            <p className="text-sm text-destructive">{comparativo.errorMessage}</p>
+          )}
+          {comparativo?.resultado && (
+            <div className="rounded-md bg-muted p-3 text-sm">
+              <p>
+                Último comparativo ({formatarDataHora(comparativo.resultado.executadoEm)}):{" "}
+                <strong>
+                  {comparativo.resultado.empresasNovas.toLocaleString("pt-BR")} empresas
+                </strong>{" "}
+                entraram na base no {formatarTrimestre(comparativo.resultado.trimestreAtual)} (em
+                relação ao {formatarTrimestre(comparativo.resultado.trimestreAnterior)}).
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

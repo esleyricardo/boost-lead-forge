@@ -312,6 +312,16 @@ export default function Devedores() {
               />
               Só novas
             </label>
+            <label
+              className="flex items-center gap-2 text-sm"
+              title="Empresas presentes na base atual mas ausentes no trimestre anterior (execute o comparativo na aba Sincronização)"
+            >
+              <Switch
+                checked={!!filtro.entrouUltimoTrimestre}
+                onCheckedChange={(v) => atualizarFiltro({ entrouUltimoTrimestre: v })}
+              />
+              Entraram no último trimestre
+            </label>
             <span className="ml-auto text-xs text-muted-foreground">
               Estes filtros são aplicados na hora, sem precisar clicar em Pesquisar
             </span>
@@ -416,6 +426,15 @@ export default function Devedores() {
                     </div>
                     {e.isNova && (
                       <Badge className="bg-amber-500 hover:bg-amber-500">Nova</Badge>
+                    )}
+                    {e.entrouNaBaseEm && (
+                      <Badge
+                        variant="outline"
+                        className="border-emerald-600 text-emerald-600"
+                        title="Empresa ausente no trimestre anterior da PGFN"
+                      >
+                        Entrou no trimestre
+                      </Badge>
                     )}
                   </div>
                 </TableCell>

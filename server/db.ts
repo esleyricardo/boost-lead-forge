@@ -9,7 +9,12 @@ import * as path from "path";
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
-export const db = new Database(path.join(DATA_DIR, "pgfn.db"));
+const DB_PATH = path.join(DATA_DIR, "pgfn.db");
+// Aparece nos logs de deploy: confirme que este caminho está DENTRO do volume
+// persistente (ex.: /app/data), senão os dados são perdidos a cada redeploy.
+console.log(`[DB] Banco de dados em ${DB_PATH}`);
+
+export const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("synchronous = NORMAL");
 
@@ -75,6 +80,8 @@ CREATE TABLE IF NOT EXISTS empresas (
   data_inscricao_mais_recente TEXT,
   data_primeira_deteccao TEXT NOT NULL DEFAULT (datetime('now')),
   primeira_sync_id INTEGER NOT NULL,
+  -- Trimestre PGFN em que a empresa entrou na base (comparativo de trimestres)
+  entrou_na_base_em TEXT,
   -- Enriquecimento via OpenCNPJ
   telefones TEXT,
   email TEXT,
@@ -96,7 +103,19 @@ CREATE TABLE IF NOT EXISTS configuracoes (
   valor TEXT,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Tabela de trabalho do comparativo de trimestres: CNPJs presentes no
+-- trimestre ANTERIOR, usados para descobrir quem entrou no trimestre atual.
+CREATE TABLE IF NOT EXISTS cnpjs_trimestre_ref (
+  cnpj TEXT PRIMARY KEY
+) WITHOUT ROWID;
 `);
+
+// Migração: bancos criados antes do comparativo de trimestres não têm a coluna
+const colunasEmpresas = db.prepare("PRAGMA table_info(empresas)").all() as { name: string }[];
+if (!colunasEmpresas.some((c) => c.name === "entrou_na_base_em")) {
+  db.exec("ALTER TABLE empresas ADD COLUMN entrou_na_base_em TEXT");
+}
 
 export function getConfig(chave: string): string | null {
   const row = db.prepare("SELECT valor FROM configuracoes WHERE chave = ?").get(chave) as

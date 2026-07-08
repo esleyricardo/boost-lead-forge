@@ -24,6 +24,7 @@ import {
   listarSincronizacoes,
 } from "./services/pgfn-sync";
 import { atualizarConfigCron, proximaExecucao } from "./services/cron";
+import { executarComparativo, getComparativoStatus, isComparando } from "./services/comparativo";
 import { getEnriquecimentoStatus, iniciarEnriquecimento } from "./services/enrichment";
 import { gerarExcel } from "./services/excel";
 import type { DashboardMetrics, EmpresasFiltro, SyncConfig } from "../shared/types";
@@ -126,6 +127,7 @@ function parseFiltro(query: Record<string, unknown>): EmpresasFiltro {
     valorMin: query.valorMin != null && query.valorMin !== "" ? Number(query.valorMin) : undefined,
     valorMax: query.valorMax != null && query.valorMax !== "" ? Number(query.valorMax) : undefined,
     apenasNovas: query.apenasNovas === "true",
+    entrouUltimoTrimestre: query.entrouUltimoTrimestre === "true",
     enriquecidas:
       query.enriquecidas === "sim" || query.enriquecidas === "nao"
         ? (query.enriquecidas as "sim" | "nao")
@@ -221,6 +223,9 @@ api.post(
   requireAuth,
   handle((req, res) => {
     if (isSincronizando()) throw new HttpError(409, "Já existe uma sincronização em andamento.");
+    if (isComparando()) {
+      throw new HttpError(409, "Há um comparativo de trimestres em andamento. Aguarde a conclusão.");
+    }
     const forcar = (req.body || {}).forcar === true;
     // Dispara em segundo plano; o acompanhamento é feito pelo histórico
     executarSincronizacao("manual", forcar).catch((err) =>
@@ -235,6 +240,32 @@ api.get(
   requireAuth,
   handle((_req, res) => {
     res.json({ sincronizacoes: listarSincronizacoes() });
+  })
+);
+
+// ---------- Comparativo de trimestres ----------
+
+api.post(
+  "/comparativo/executar",
+  requireAuth,
+  handle((_req, res) => {
+    if (isComparando()) throw new HttpError(409, "Já existe um comparativo em andamento.");
+    if (isSincronizando()) {
+      throw new HttpError(409, "Há uma sincronização em andamento. Aguarde a conclusão.");
+    }
+    // Dispara em segundo plano; o acompanhamento é feito pelo status
+    executarComparativo().catch((err) =>
+      console.error("[Comparativo] Erro:", err instanceof Error ? err.message : err)
+    );
+    res.status(202).json({ ok: true });
+  })
+);
+
+api.get(
+  "/comparativo/status",
+  requireAuth,
+  handle((_req, res) => {
+    res.json(getComparativoStatus());
   })
 );
 

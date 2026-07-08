@@ -50,6 +50,12 @@ function montarWhere(filtro: EmpresasFiltro, ultimaSyncId: number | null): Where
     conds.push("e.primeira_sync_id = @ultimaSyncId");
     params.ultimaSyncId = ultimaSyncId;
   }
+  if (filtro.entrouUltimoTrimestre) {
+    // Apurado pelo comparativo (ou pelas sincronizações seguintes à carga inicial)
+    conds.push(
+      "e.entrou_na_base_em = (SELECT valor FROM configuracoes WHERE chave = 'trimestre_atual')"
+    );
+  }
   if (filtro.enriquecidas === "sim") conds.push("e.enriched_at IS NOT NULL");
   if (filtro.enriquecidas === "nao") conds.push("e.enriched_at IS NULL");
 
@@ -82,6 +88,7 @@ function mapEmpresa(row: Record<string, unknown>): Empresa {
     dataInscricaoMaisRecente: row.data_inscricao_mais_recente as string | null,
     dataPrimeiraDeteccao: row.data_primeira_deteccao as string,
     isNova: row.is_nova === 1,
+    entrouNaBaseEm: (row.entrou_na_base_em as string | null) ?? null,
     telefones: row.telefones as string | null,
     email: row.email as string | null,
     socios: row.socios as string | null,

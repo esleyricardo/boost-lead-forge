@@ -11,10 +11,11 @@ import * as path from "node:path";
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "pgfn-test-"));
 
 async function main() {
-  const { db } = await import("../db");
+  const { db, setConfig } = await import("../db");
   const { normalizarLinha, normalizarData, parseValor, inserirLote, consolidarEmpresas, trimestresCandidatos } =
     await import("../services/pgfn-sync");
-  const { formatarCnpj, gerarExcel } = await import("../services/excel");
+  const { trimestreAnteriorDe, marcarEmpresasNovasDoTrimestre } = await import("../services/comparativo");
+  const { formatarCnpj, formatarTrimestre, gerarExcel } = await import("../services/excel");
   const { registrar, login } = await import("../auth");
   const { listarEmpresas, buscarEmpresa } = await import("../services/empresas");
 
@@ -181,6 +182,89 @@ async function main() {
     const det = buscarEmpresa("12345678000195")!;
     assert.equal(det.dividas.length, 1);
     assert.equal(det.dividas[0].dataInscricao, "2019-05-21");
+  });
+
+  console.log("Comparativo de trimestres:");
+  await test("trimestreAnteriorDe calcula o trimestre anterior (com virada de ano)", () => {
+    assert.equal(trimestreAnteriorDe("2026_trimestre_01"), "2025_trimestre_04");
+    assert.equal(trimestreAnteriorDe("2026_trimestre_03"), "2026_trimestre_02");
+    assert.equal(trimestreAnteriorDe("formato_invalido"), null);
+  });
+
+  await test("formatarTrimestre exibe formato legível", () => {
+    assert.equal(formatarTrimestre("2026_trimestre_01"), "1º trim/2026");
+    assert.equal(formatarTrimestre(null), "");
+  });
+
+  await test("comparativo marca só as empresas ausentes no trimestre anterior", () => {
+    // Estado atual: ativas = 12345678000195 e 11222333000181
+    // Simula o trimestre anterior contendo apenas a empresa antiga
+    db.prepare("DELETE FROM cnpjs_trimestre_ref").run();
+    db.prepare("INSERT INTO cnpjs_trimestre_ref (cnpj) VALUES (?)").run("12345678000195");
+    setConfig("trimestre_atual", "2026_trimestre_02");
+
+    const marcadas = marcarEmpresasNovasDoTrimestre("2026_trimestre_02");
+    assert.equal(marcadas, 1);
+
+    const filtradas = listarEmpresas({ entrouUltimoTrimestre: true, page: 1, pageSize: 10 });
+    assert.equal(filtradas.total, 1);
+    assert.equal(filtradas.items[0].cnpj, "11222333000181");
+    assert.equal(filtradas.items[0].entrouNaBaseEm, "2026_trimestre_02");
+
+    // A empresa que já existia no trimestre anterior não pode ser marcada
+    const antiga = db
+      .prepare("SELECT entrou_na_base_em FROM empresas WHERE cnpj = ?")
+      .get("12345678000195") as { entrou_na_base_em: string | null };
+    assert.equal(antiga.entrou_na_base_em, null);
+  });
+
+  await test("consolidarEmpresas marca trimestre de entrada de empresas novas", () => {
+    db.prepare("INSERT INTO sincronizacoes (status, disparo) VALUES ('running','manual')").run();
+    const sync3 = db.prepare("SELECT MAX(id) AS id FROM sincronizacoes").get() as { id: number };
+    const l4 = normalizarLinha(
+      {
+        ...linhaBase,
+        CPF_CNPJ: "44.555.666/0001-30",
+        NOME_DEVEDOR: "RECEM CHEGADA LTDA",
+        NUMERO_INSCRICAO: "80 6 26 055555-50",
+        VALOR_CONSOLIDADO: "77.000,00",
+        RECEITA_PRINCIPAL: "PIS",
+      },
+      "Nao_Previdenciario"
+    )!;
+    // Reprocessa as dívidas existentes + a nova (upsert preserva as antigas)
+    const existentes = db
+      .prepare("SELECT numero_inscricao FROM dividas WHERE ativa = 1")
+      .all() as { numero_inscricao: string }[];
+    assert.ok(existentes.length > 0);
+    const l1c = { ...normalizarLinha(linhaBase, "Nao_Previdenciario")!, valorConsolidado: 200000 };
+    const l3b = normalizarLinha(
+      {
+        ...linhaBase,
+        CPF_CNPJ: "11.222.333/0001-81",
+        NOME_DEVEDOR: "EMPRESA NOVA ME",
+        NUMERO_INSCRICAO: "80 6 26 099999-90",
+        DATA_INSCRICAO: "02/06/2026",
+        VALOR_CONSOLIDADO: "10.000,00",
+        UF_DEVEDOR: "MG",
+        RECEITA_PRINCIPAL: "IRPJ",
+      },
+      "Nao_Previdenciario"
+    )!;
+    inserirLote([l1c, l3b, l4], sync3.id);
+    consolidarEmpresas(sync3.id, "2026_trimestre_02");
+    db.prepare("UPDATE sincronizacoes SET status='completed', concluida_em=datetime('now') WHERE id=?").run(sync3.id);
+
+    const nova = db
+      .prepare("SELECT entrou_na_base_em FROM empresas WHERE cnpj = ?")
+      .get("44555666000130") as { entrou_na_base_em: string | null };
+    assert.equal(nova.entrou_na_base_em, "2026_trimestre_02");
+
+    // Empresa pré-existente mantém a marcação anterior (não é sobrescrita)
+    const jaExistia = db
+      .prepare("SELECT entrou_na_base_em FROM empresas WHERE cnpj = ?")
+      .get("12345678000195") as { entrou_na_base_em: string | null };
+    assert.equal(jaExistia.entrou_na_base_em, null);
   });
 
   console.log("Filtros:");

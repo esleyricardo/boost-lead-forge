@@ -9,6 +9,13 @@ export function formatarCnpj(cnpj: string): string {
   return `${cnpj.slice(0, 2)}.${cnpj.slice(2, 5)}.${cnpj.slice(5, 8)}/${cnpj.slice(8, 12)}-${cnpj.slice(12)}`;
 }
 
+/** "2026_trimestre_01" -> "1º trim/2026" */
+export function formatarTrimestre(trimestre: string | null): string {
+  if (!trimestre) return "";
+  const m = trimestre.match(/^(\d{4})_trimestre_0([1-4])$/);
+  return m ? `${m[2]}º trim/${m[1]}` : trimestre;
+}
+
 function sociosParaTexto(sociosJson: string | null): string {
   if (!sociosJson) return "";
   try {
@@ -35,6 +42,7 @@ export async function gerarExcel(empresas: Empresa[]): Promise<Buffer> {
     { header: "Data Inscrição Mais Antiga", key: "dataAntiga", width: 22 },
     { header: "Data Inscrição Mais Recente", key: "dataRecente", width: 22 },
     { header: "Detectada pelo Sistema em", key: "dataDeteccao", width: 22 },
+    { header: "Entrou na Base (Trimestre)", key: "entrouNaBase", width: 22 },
     { header: "Telefones", key: "telefones", width: 30 },
     { header: "Email", key: "email", width: 32 },
     { header: "Sócios", key: "socios", width: 60 },
@@ -64,6 +72,7 @@ export async function gerarExcel(empresas: Empresa[]): Promise<Buffer> {
       dataAntiga: e.dataInscricaoMaisAntiga || "",
       dataRecente: e.dataInscricaoMaisRecente || "",
       dataDeteccao: e.dataPrimeiraDeteccao?.slice(0, 10) || "",
+      entrouNaBase: formatarTrimestre(e.entrouNaBaseEm),
       telefones: e.telefones || "",
       email: e.email || "",
       socios: sociosParaTexto(e.socios),
@@ -75,7 +84,7 @@ export async function gerarExcel(empresas: Empresa[]): Promise<Buffer> {
   }
 
   sheet.getColumn("valorTotal").numFmt = "#,##0.00";
-  sheet.autoFilter = { from: "A1", to: "Q1" };
+  sheet.autoFilter = { from: "A1", to: "R1" };
   sheet.views = [{ state: "frozen", ySplit: 1 }];
 
   const buffer = await workbook.xlsx.writeBuffer();
