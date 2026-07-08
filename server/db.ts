@@ -117,6 +117,31 @@ if (!colunasEmpresas.some((c) => c.name === "entrou_na_base_em")) {
   db.exec("ALTER TABLE empresas ADD COLUMN entrou_na_base_em TEXT");
 }
 
+/**
+ * Zera todos os dados de sincronização (dívidas, empresas, histórico,
+ * comparativo) e recupera o espaço em disco, mantendo os usuários e o
+ * agendamento. Usado para "começar do zero" sem perder o login.
+ */
+export function resetarDadosPGFN(): void {
+  const tx = db.transaction(() => {
+    db.prepare("DELETE FROM dividas").run();
+    db.prepare("DELETE FROM empresas").run();
+    db.prepare("DELETE FROM sincronizacoes").run();
+    db.prepare("DELETE FROM cnpjs_trimestre_ref").run();
+    db.prepare(
+      `DELETE FROM configuracoes
+       WHERE chave IN ('assinatura_pgfn','ultima_sincronizacao','trimestre_atual','comparativo_resultado')`
+    ).run();
+    // Reinicia a contagem de IDs (só afeta tabelas com AUTOINCREMENT)
+    db.prepare("DELETE FROM sqlite_sequence WHERE name IN ('dividas','sincronizacoes')").run();
+  });
+  tx();
+  // Compacta o arquivo do banco para devolver o espaço ao disco/volume
+  db.pragma("wal_checkpoint(TRUNCATE)");
+  db.exec("VACUUM");
+  console.log("[DB] Dados da PGFN zerados e disco recuperado (usuários mantidos).");
+}
+
 export function getConfig(chave: string): string | null {
   const row = db.prepare("SELECT valor FROM configuracoes WHERE chave = ?").get(chave) as
     | { valor: string | null }

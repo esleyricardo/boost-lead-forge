@@ -2,7 +2,7 @@
  * Rotas da API REST.
  */
 import { Router, type Response } from "express";
-import { db, getConfig } from "./db";
+import { db, getConfig, resetarDadosPGFN } from "./db";
 import {
   alterarPropriaSenha,
   AuthRequest,
@@ -273,6 +273,20 @@ api.get(
   requireAuth,
   handle((_req, res) => {
     res.json({ sincronizacoes: listarSincronizacoes() });
+  })
+);
+
+// Zera os dados de sincronização para recomeçar do zero (mantém usuários)
+api.post(
+  "/sync/reset",
+  requireAuth,
+  requireAdmin,
+  handle((_req, res) => {
+    if (isSincronizando() || isComparando()) {
+      throw new HttpError(409, "Aguarde a sincronização/comparativo em andamento terminar.");
+    }
+    resetarDadosPGFN();
+    res.json({ ok: true });
   })
 );
 

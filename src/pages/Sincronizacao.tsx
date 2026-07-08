@@ -8,11 +8,23 @@ import {
   Loader2,
   PlayCircle,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { ComparativoStatus, Sincronizacao as Sync, SyncConfig } from "@shared/types";
 import { api, formatarDataHora } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -117,6 +129,15 @@ export default function Sincronizacao() {
       queryClient.invalidateQueries({ queryKey: ["sync-config"] });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Falha ao salvar."),
+  });
+
+  const resetar = useMutation({
+    mutationFn: () => api.post("/sync/reset", {}),
+    onSuccess: () => {
+      toast.success("Base zerada. Você já pode iniciar uma nova sincronização.");
+      queryClient.invalidateQueries();
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Falha ao zerar a base."),
   });
 
   const isAdmin = usuario?.role === "admin";
@@ -360,6 +381,54 @@ export default function Sincronizacao() {
           </TableBody>
         </Table>
       </Card>
+
+      {isAdmin && (
+        <Card className="border-destructive/40">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base text-destructive">
+              <Trash2 className="h-4 w-4" /> Zona de perigo
+            </CardTitle>
+            <CardDescription>
+              Zera todos os dados de sincronização (dívidas, empresas, histórico e comparativo) e
+              libera o espaço em disco, para recomeçar do zero. <strong>Seus usuários e senhas são
+              mantidos.</strong> Esta ação não pode ser desfeita.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" disabled={emAndamento || resetar.isPending}>
+                  {resetar.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="mr-2 h-4 w-4" />
+                  )}
+                  Zerar base e recomeçar do zero
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Zerar toda a base?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Todas as dívidas, empresas, histórico de sincronizações e o comparativo serão
+                    apagados definitivamente, e o espaço em disco será liberado. Os usuários
+                    cadastrados (incluindo o seu login) permanecem. Deseja continuar?
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={() => resetar.mutate()}
+                  >
+                    Sim, zerar tudo
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

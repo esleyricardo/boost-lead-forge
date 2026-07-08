@@ -11,7 +11,7 @@ import * as path from "node:path";
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "pgfn-test-"));
 
 async function main() {
-  const { db, setConfig } = await import("../db");
+  const { db, setConfig, getConfig: getConfigTest, resetarDadosPGFN } = await import("../db");
   const {
     normalizarLinha,
     normalizarData,
@@ -384,6 +384,30 @@ async function main() {
     // Arquivos xlsx são ZIPs: assinatura PK
     assert.equal(buf.subarray(0, 2).toString(), "PK");
     assert.ok(buf.length > 1000);
+  });
+
+  console.log("Reset da base:");
+  await test("resetarDadosPGFN zera dados de sincronização e mantém usuários", () => {
+    // Pré-condição: há dados carregados pelos testes anteriores
+    assert.ok((db.prepare("SELECT COUNT(*) AS n FROM empresas").get() as { n: number }).n > 0);
+    const usuariosAntes = (db.prepare("SELECT COUNT(*) AS n FROM usuarios").get() as { n: number }).n;
+    assert.ok(usuariosAntes > 0);
+    setConfig("ultima_sincronizacao", "2026-01-01T00:00:00Z");
+
+    resetarDadosPGFN();
+
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM dividas").get() as { n: number }).n, 0);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM empresas").get() as { n: number }).n, 0);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM sincronizacoes").get() as { n: number }).n, 0);
+    // Usuários preservados
+    assert.equal(
+      (db.prepare("SELECT COUNT(*) AS n FROM usuarios").get() as { n: number }).n,
+      usuariosAntes
+    );
+    // Config de sync limpa; agendamento preservado
+    assert.equal(getConfigTest("ultima_sincronizacao"), null);
+    assert.equal(getConfigTest("cron_horario"), "06:00");
+    assert.equal(listarEmpresas({ page: 1, pageSize: 10 }).total, 0);
   });
 
   console.log(`\n${passed} testes passaram.`);
