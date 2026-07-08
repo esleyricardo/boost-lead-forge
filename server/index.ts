@@ -7,6 +7,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { api } from "./routes";
 import { reagendarCron } from "./services/cron";
+import { recuperarSincronizacoesOrfas } from "./services/pgfn-sync";
 
 const PORT = Number(process.env.PORT) || 3001;
 const app = express();
@@ -26,5 +27,7 @@ if (fs.existsSync(distDir)) {
 
 app.listen(PORT, () => {
   console.log(`[Server] API rodando em http://localhost:${PORT}`);
+  // Limpa sincronizações interrompidas por um restart anterior
+  recuperarSincronizacoesOrfas();
   reagendarCron();
 });

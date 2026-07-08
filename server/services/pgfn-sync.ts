@@ -28,6 +28,30 @@ export function isSincronizando(): boolean {
   return syncEmAndamento;
 }
 
+/**
+ * Recupera sincronizações "fantasma": uma sincronização roda em memória, então
+ * qualquer linha ainda em 'running' na inicialização é de um processo anterior
+ * que foi interrompido (redeploy, restart, queda). Marca como erro para não
+ * travar a interface (o botão de sincronizar volta a ficar disponível).
+ * Deve ser chamada uma vez, no boot do servidor.
+ */
+export function recuperarSincronizacoesOrfas(): number {
+  const info = db
+    .prepare(
+      `UPDATE sincronizacoes
+         SET status = 'error',
+             error_message = COALESCE(error_message,
+               'Interrompida: o servidor reiniciou durante a sincronização (redeploy ou queda). Rode novamente.'),
+             concluida_em = datetime('now')
+       WHERE status = 'running'`
+    )
+    .run();
+  if (info.changes > 0) {
+    console.log(`[Sync] ${info.changes} sincronização(ões) órfã(s) marcada(s) como erro na inicialização.`);
+  }
+  return info.changes;
+}
+
 // ---------- Trimestre ----------
 
 /** Lista os últimos N trimestres no formato usado pela PGFN, do mais recente ao mais antigo. */
@@ -113,29 +137,34 @@ export function downloadFile(url: string, destPath: string, redirects = 0): Prom
   return new Promise((resolve, reject) => {
     if (redirects > 5) return reject(new Error("Muitos redirecionamentos ao baixar " + url));
     const file = fs.createWriteStream(destPath);
-    https
-      .get(url, { timeout: 60000 }, (response) => {
-        if (
-          response.statusCode &&
-          [301, 302, 307, 308].includes(response.statusCode) &&
-          response.headers.location
-        ) {
-          file.close();
-          response.resume();
-          downloadFile(response.headers.location, destPath, redirects + 1).then(resolve).catch(reject);
-          return;
-        }
-        if (response.statusCode !== 200) {
-          file.close();
-          response.resume();
-          reject(new Error(`HTTP ${response.statusCode} ao baixar ${url}`));
-          return;
-        }
-        response.pipe(file);
-        file.on("finish", () => file.close(() => resolve()));
-        file.on("error", reject);
-      })
-      .on("error", reject);
+    // Timeout de INATIVIDADE: dispara se ficar 2 min sem receber nenhum dado.
+    // Sem isso, uma conexão que trava deixaria o download (e a sincronização)
+    // pendurado para sempre.
+    const req = https.get(url, { timeout: 120000 }, (response) => {
+      if (
+        response.statusCode &&
+        [301, 302, 307, 308].includes(response.statusCode) &&
+        response.headers.location
+      ) {
+        file.close();
+        response.resume();
+        downloadFile(response.headers.location, destPath, redirects + 1).then(resolve).catch(reject);
+        return;
+      }
+      if (response.statusCode !== 200) {
+        file.close();
+        response.resume();
+        reject(new Error(`HTTP ${response.statusCode} ao baixar ${url}`));
+        return;
+      }
+      response.pipe(file);
+      file.on("finish", () => file.close(() => resolve()));
+      file.on("error", reject);
+    });
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy(new Error(`Download travado (sem dados por 2 min): ${url}`));
+    });
   });
 }
 

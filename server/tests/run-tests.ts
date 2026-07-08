@@ -12,8 +12,15 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "pgfn-test-"));
 
 async function main() {
   const { db, setConfig } = await import("../db");
-  const { normalizarLinha, normalizarData, parseValor, inserirLote, consolidarEmpresas, trimestresCandidatos } =
-    await import("../services/pgfn-sync");
+  const {
+    normalizarLinha,
+    normalizarData,
+    parseValor,
+    inserirLote,
+    consolidarEmpresas,
+    trimestresCandidatos,
+    recuperarSincronizacoesOrfas,
+  } = await import("../services/pgfn-sync");
   const { trimestreAnteriorDe, aplicarPasseComparativo, resetarEntradas } = await import(
     "../services/comparativo"
   );
@@ -186,6 +193,21 @@ async function main() {
     const det = buscarEmpresa("12345678000195")!;
     assert.equal(det.dividas.length, 1);
     assert.equal(det.dividas[0].dataInscricao, "2019-05-21");
+  });
+
+  await test("recuperarSincronizacoesOrfas marca sync 'running' interrompida como erro", () => {
+    db.prepare("INSERT INTO sincronizacoes (status, disparo) VALUES ('running','manual')").run();
+    const orfa = db.prepare("SELECT MAX(id) AS id FROM sincronizacoes").get() as { id: number };
+    const marcadas = recuperarSincronizacoesOrfas();
+    assert.equal(marcadas, 1);
+    const row = db
+      .prepare("SELECT status, error_message, concluida_em FROM sincronizacoes WHERE id = ?")
+      .get(orfa.id) as { status: string; error_message: string | null; concluida_em: string | null };
+    assert.equal(row.status, "error");
+    assert.ok(row.error_message && row.error_message.includes("reiniciou"));
+    assert.ok(row.concluida_em);
+    // Idempotente: sem nenhuma 'running', não altera nada
+    assert.equal(recuperarSincronizacoesOrfas(), 0);
   });
 
   console.log("Comparativo de trimestres:");
