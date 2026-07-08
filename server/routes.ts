@@ -4,9 +4,11 @@
 import { Router, type Response } from "express";
 import { db, getConfig } from "./db";
 import {
+  alterarPropriaSenha,
   AuthRequest,
   HttpError,
   login,
+  redefinirSenha,
   registrar,
   requireAdmin,
   requireAuth,
@@ -80,6 +82,16 @@ api.get(
   })
 );
 
+api.post(
+  "/auth/alterar-senha",
+  requireAuth,
+  handle((req, res) => {
+    const { senhaAtual, novaSenha } = req.body || {};
+    alterarPropriaSenha(req.usuario!.id, String(senhaAtual || ""), String(novaSenha || ""));
+    res.json({ ok: true });
+  })
+);
+
 // ---------- Usuários (admin) ----------
 
 api.get(
@@ -115,6 +127,17 @@ api.patch(
     const row = db.prepare("SELECT * FROM usuarios WHERE id = ?").get(id);
     if (!row) throw new HttpError(404, "Usuário não encontrado.");
     res.json({ usuario: toUsuario(row as Parameters<typeof toUsuario>[0]) });
+  })
+);
+
+api.post(
+  "/usuarios/:id/senha",
+  requireAuth,
+  requireAdmin,
+  handle((req, res) => {
+    const { novaSenha } = req.body || {};
+    redefinirSenha(Number(req.params.id), String(novaSenha || ""));
+    res.json({ ok: true });
   })
 );
 

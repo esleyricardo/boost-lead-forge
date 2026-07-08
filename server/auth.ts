@@ -77,6 +77,34 @@ export function login(email: string, senha: string): { token: string; usuario: U
   return { token, usuario: toUsuario(row) };
 }
 
+/** Usuário logado troca a própria senha confirmando a atual. */
+export function alterarPropriaSenha(userId: number, senhaAtual: string, novaSenha: string): void {
+  if (novaSenha.length < 6) {
+    throw new HttpError(400, "A nova senha precisa ter ao menos 6 caracteres.");
+  }
+  const row = db.prepare("SELECT senha_hash FROM usuarios WHERE id = ?").get(userId) as
+    | { senha_hash: string }
+    | undefined;
+  if (!row || !bcrypt.compareSync(senhaAtual, row.senha_hash)) {
+    throw new HttpError(401, "Senha atual incorreta.");
+  }
+  db.prepare("UPDATE usuarios SET senha_hash = ? WHERE id = ?").run(
+    bcrypt.hashSync(novaSenha, 10),
+    userId
+  );
+}
+
+/** Admin redefine a senha de um usuário (recuperação de acesso). */
+export function redefinirSenha(userId: number, novaSenha: string): void {
+  if (novaSenha.length < 6) {
+    throw new HttpError(400, "A nova senha precisa ter ao menos 6 caracteres.");
+  }
+  const info = db
+    .prepare("UPDATE usuarios SET senha_hash = ? WHERE id = ?")
+    .run(bcrypt.hashSync(novaSenha, 10), userId);
+  if (info.changes === 0) throw new HttpError(404, "Usuário não encontrado.");
+}
+
 export class HttpError extends Error {
   constructor(public status: number, message: string) {
     super(message);

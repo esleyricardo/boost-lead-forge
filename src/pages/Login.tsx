@@ -1,10 +1,17 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Building2, Loader2 } from "lucide-react";
+import { Building2, KeyRound, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -14,6 +21,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [recuperarAberto, setRecuperarAberto] = useState(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -66,14 +74,52 @@ export default function Login() {
               Entrar
             </Button>
           </form>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            Não tem conta?{" "}
-            <Link to="/registro" className="font-medium text-primary hover:underline">
-              Cadastre-se
-            </Link>
-          </p>
+          <div className="mt-4 space-y-1 text-center text-sm text-muted-foreground">
+            <p>
+              <button
+                type="button"
+                className="font-medium text-primary hover:underline"
+                onClick={() => setRecuperarAberto(true)}
+              >
+                Esqueci minha senha
+              </button>
+            </p>
+            <p>
+              Não tem conta?{" "}
+              <Link to="/registro" className="font-medium text-primary hover:underline">
+                Cadastre-se
+              </Link>
+            </p>
+          </div>
         </CardContent>
       </Card>
+
+      <Dialog open={recuperarAberto} onOpenChange={setRecuperarAberto}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5" /> Recuperar senha
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3 pt-2 text-sm">
+                <p>
+                  Por segurança, a redefinição de senha é feita por um{" "}
+                  <strong>administrador do sistema</strong>:
+                </p>
+                <ol className="list-decimal space-y-1 pl-5">
+                  <li>Avise um administrador que você esqueceu a senha.</li>
+                  <li>
+                    Ele define uma senha temporária para você na aba{" "}
+                    <strong>Usuários</strong>.
+                  </li>
+                  <li>Entre com a senha temporária e troque-a em "Alterar senha".</li>
+                </ol>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <Button onClick={() => setRecuperarAberto(false)}>Entendi</Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

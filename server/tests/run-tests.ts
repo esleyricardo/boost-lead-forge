@@ -18,7 +18,7 @@ async function main() {
     "../services/comparativo"
   );
   const { formatarCnpj, formatarTrimestre, gerarExcel } = await import("../services/excel");
-  const { registrar, login } = await import("../auth");
+  const { registrar, login, alterarPropriaSenha, redefinirSenha } = await import("../auth");
   const { listarEmpresas, buscarEmpresa, listarTrimestresEntrada } = await import(
     "../services/empresas"
   );
@@ -331,6 +331,28 @@ async function main() {
     assert.throws(() => login("user@x.com", "123456"), /aguarda liberação/);
     const { token } = login("admin@x.com", "123456");
     assert.ok(token.length > 20);
+  });
+
+  await test("usuário troca a própria senha confirmando a atual", () => {
+    const admin = login("admin@x.com", "123456").usuario;
+    assert.throws(() => alterarPropriaSenha(admin.id, "errada", "nova-senha"), /Senha atual incorreta/);
+    assert.throws(() => alterarPropriaSenha(admin.id, "123456", "curta"), /6 caracteres/);
+    alterarPropriaSenha(admin.id, "123456", "nova-senha");
+    assert.throws(() => login("admin@x.com", "123456"), /incorretos/);
+    assert.ok(login("admin@x.com", "nova-senha").token);
+  });
+
+  await test("admin redefine a senha de um usuário (recuperação)", () => {
+    const user = db.prepare("SELECT id FROM usuarios WHERE email = 'user@x.com'").get() as {
+      id: number;
+    };
+    assert.throws(() => redefinirSenha(user.id, "curta"), /6 caracteres/);
+    assert.throws(() => redefinirSenha(99999, "senha-valida"), /não encontrado/);
+    redefinirSenha(user.id, "senha-temporaria");
+    // status pendente continua bloqueando o login, mas a senha nova é aceita
+    assert.throws(() => login("user@x.com", "senha-temporaria"), /aguarda liberação/);
+    db.prepare("UPDATE usuarios SET status = 'aprovado' WHERE id = ?").run(user.id);
+    assert.ok(login("user@x.com", "senha-temporaria").token);
   });
 
   console.log("Excel:");
