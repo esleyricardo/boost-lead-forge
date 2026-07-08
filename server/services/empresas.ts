@@ -50,11 +50,10 @@ function montarWhere(filtro: EmpresasFiltro, ultimaSyncId: number | null): Where
     conds.push("e.primeira_sync_id = @ultimaSyncId");
     params.ultimaSyncId = ultimaSyncId;
   }
-  if (filtro.entrouUltimoTrimestre) {
+  if (filtro.trimestreEntrada) {
     // Apurado pelo comparativo (ou pelas sincronizações seguintes à carga inicial)
-    conds.push(
-      "e.entrou_na_base_em = (SELECT valor FROM configuracoes WHERE chave = 'trimestre_atual')"
-    );
+    conds.push("e.entrou_na_base_em = @trimestreEntrada");
+    params.trimestreEntrada = filtro.trimestreEntrada;
   }
   if (filtro.enriquecidas === "sim") conds.push("e.enriched_at IS NOT NULL");
   if (filtro.enriquecidas === "nao") conds.push("e.enriched_at IS NULL");
@@ -67,6 +66,8 @@ const ORDER_COLS: Record<string, string> = {
   dataInscricaoMaisRecente: "e.data_inscricao_mais_recente",
   dataPrimeiraDeteccao: "e.data_primeira_deteccao",
   razaoSocial: "e.razao_social",
+  // O formato "AAAA_trimestre_0N" ordena cronologicamente como texto
+  entrouNaBaseEm: "e.entrou_na_base_em",
 };
 
 const SELECT_EMPRESA = `
@@ -190,6 +191,18 @@ export function listarParaExportacao(filtro: EmpresasFiltro, cnpjs?: string[]): 
     )
     .all({ ...params, ultimaSyncIdBadge: ultimaSyncId ?? -1 }) as Record<string, unknown>[];
   return rows.map(mapEmpresa);
+}
+
+/** Trimestres de entrada distintos (para popular o filtro), do mais recente ao mais antigo. */
+export function listarTrimestresEntrada(): string[] {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT entrou_na_base_em AS t FROM empresas
+       WHERE entrou_na_base_em IS NOT NULL AND qtd_dividas > 0
+       ORDER BY entrou_na_base_em DESC`
+    )
+    .all() as { t: string }[];
+  return rows.map((r) => r.t);
 }
 
 export function listarEnriquecidas(page: number, pageSize: number): PaginatedEmpresas {

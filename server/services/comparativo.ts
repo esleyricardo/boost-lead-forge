@@ -1,15 +1,17 @@
 /**
- * Comparativo de trimestres: descobre quais empresas ENTRARAM na base da PGFN
- * no último trimestre, comparando a base atual (já sincronizada) com a base
- * do trimestre ANTERIOR.
+ * Comparativo de trimestres: descobre EM QUAL trimestre cada empresa ENTROU
+ * na base da PGFN, comparando a base atual (já sincronizada) com as bases dos
+ * trimestres anteriores.
  *
  * Como funciona:
  *  1. Exige que a base atual já esteja carregada (sincronização concluída).
- *  2. Baixa os arquivos do trimestre anterior, mas guarda APENAS os CNPJs
- *     (tabela de trabalho cnpjs_trimestre_ref) — nada é gravado nas tabelas
- *     principais.
- *  3. Empresas presentes na base atual mas ausentes no trimestre anterior são
- *     marcadas com entrou_na_base_em = trimestre atual.
+ *  2. Baixa os arquivos de cada trimestre anterior (do mais recente ao mais
+ *     antigo), guardando APENAS os CNPJs (tabela cnpjs_trimestre_ref) — nada
+ *     é gravado nas tabelas principais.
+ *  3. A cada passe, empresas ainda não classificadas que estão AUSENTES no
+ *     trimestre baixado são marcadas: entraram no trimestre seguinte a ele.
+ *     Quem está presente no trimestre mais antigo baixado fica sem marca
+ *     (já estava na base antes do período comparado).
  *
  * Determinístico: é uma comparação de conjuntos de CNPJs, sem IA.
  */
@@ -42,7 +44,9 @@ export function getComparativoStatus(): ComparativoStatus {
   let resultado: ComparativoResultado | null = null;
   if (salvo) {
     try {
-      resultado = JSON.parse(salvo) as ComparativoResultado;
+      const parsed = JSON.parse(salvo) as ComparativoResultado;
+      // Descarta resultados gravados por versões antigas (formato diferente)
+      resultado = Array.isArray(parsed.porTrimestre) ? parsed : null;
     } catch {
       resultado = null;
     }
@@ -68,31 +72,26 @@ export function trimestreAnteriorDe(trimestre: string): string | null {
   return `${year}_trimestre_0${quarter}`;
 }
 
+/** Limpa a classificação para recomputar do zero. Separado para ser testável. */
+export function resetarEntradas(): void {
+  db.prepare("UPDATE empresas SET entrou_na_base_em = NULL").run();
+}
+
 /**
- * Marca as empresas ativas que NÃO aparecem em cnpjs_trimestre_ref como
- * "entraram na base" no trimestre informado (e desmarca falsos positivos).
- * Retorna quantas empresas ficaram marcadas. Separado para ser testável.
+ * Um passe do comparativo: empresas ativas AINDA sem classificação que NÃO
+ * aparecem em cnpjs_trimestre_ref (o trimestre anterior baixado) entraram na
+ * base no trimestre `trimestreEntrada` (o seguinte ao baixado).
+ * Retorna quantas empresas foram marcadas neste passe. Separado para ser testável.
  */
-export function marcarEmpresasNovasDoTrimestre(trimestreAtual: string): number {
-  const tx = db.transaction(() => {
-    // Quem está no trimestre anterior certamente NÃO entrou agora
-    db.prepare(
-      `UPDATE empresas SET entrou_na_base_em = NULL
-       WHERE entrou_na_base_em = @t AND cnpj IN (SELECT cnpj FROM cnpjs_trimestre_ref)`
-    ).run({ t: trimestreAtual });
-
-    db.prepare(
+export function aplicarPasseComparativo(trimestreEntrada: string): number {
+  const info = db
+    .prepare(
       `UPDATE empresas SET entrou_na_base_em = @t
-       WHERE qtd_dividas > 0 AND cnpj NOT IN (SELECT cnpj FROM cnpjs_trimestre_ref)`
-    ).run({ t: trimestreAtual });
-  });
-  tx();
-
-  return (
-    db
-      .prepare("SELECT COUNT(*) AS n FROM empresas WHERE entrou_na_base_em = ? AND qtd_dividas > 0")
-      .get(trimestreAtual) as { n: number }
-  ).n;
+       WHERE qtd_dividas > 0 AND entrou_na_base_em IS NULL
+         AND cnpj NOT IN (SELECT cnpj FROM cnpjs_trimestre_ref)`
+    )
+    .run({ t: trimestreEntrada });
+  return info.changes;
 }
 
 const insertCnpjStmt = db.prepare("INSERT OR IGNORE INTO cnpjs_trimestre_ref (cnpj) VALUES (?)");
@@ -140,6 +139,42 @@ function coletarCnpjs(csvFile: string, arquivo: string, onProgresso: (total: num
   });
 }
 
+/** Baixa um trimestre e preenche cnpjs_trimestre_ref com os CNPJs dele. */
+async function baixarCnpjsDoTrimestre(trimestre: string, tmpDir: string): Promise<void> {
+  db.prepare("DELETE FROM cnpjs_trimestre_ref").run();
+
+  let totalLinhas = 0;
+  for (const arquivo of ARQUIVOS) {
+    const zipPath = path.join(tmpDir, `${arquivo}.zip`);
+    const extractDir = path.join(tmpDir, arquivo);
+    fs.mkdirSync(extractDir, { recursive: true });
+
+    setEtapa(`Baixando ${arquivo} de ${trimestre}... O arquivo é grande, aguarde.`);
+    await downloadFile(urlArquivo(trimestre, arquivo), zipPath);
+
+    setEtapa(`Extraindo ${arquivo} de ${trimestre}...`);
+    const csvs = await extrairZip(zipPath, extractDir);
+    fs.rmSync(zipPath, { force: true });
+
+    for (let i = 0; i < csvs.length; i++) {
+      const nomeCsv = path.basename(csvs[i]);
+      setEtapa(`Lendo CNPJs de ${trimestre} — ${nomeCsv} (${i + 1}/${csvs.length})...`);
+      totalLinhas += await coletarCnpjs(csvs[i], arquivo, (qtd) => {
+        if (qtd % 100000 < 5000) {
+          setEtapa(
+            `Lendo CNPJs de ${trimestre} — ${nomeCsv}: ${(totalLinhas + qtd).toLocaleString("pt-BR")} registros lidos...`
+          );
+        }
+      });
+      fs.rmSync(csvs[i], { force: true });
+    }
+    fs.rmSync(extractDir, { recursive: true, force: true });
+  }
+}
+
+/** Quantos trimestres ANTERIORES ao atual baixar (2 => comparativo dos 3 últimos). */
+const TRIMESTRES_ANTERIORES = 2;
+
 export async function executarComparativo(): Promise<ComparativoResultado> {
   if (comparandoAgora) throw new Error("Já existe um comparativo em andamento.");
   if (isSincronizando()) {
@@ -156,70 +191,64 @@ export async function executarComparativo(): Promise<ComparativoResultado> {
     throw new Error(ultimoErro);
   }
 
-  const trimestreAnterior = trimestreAnteriorDe(trimestreAtual);
-  if (!trimestreAnterior) {
-    ultimoErro = `Trimestre atual em formato inesperado: ${trimestreAtual}`;
-    throw new Error(ultimoErro);
-  }
-
   comparandoAgora = true;
   ultimoErro = null;
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pgfn-comparativo-"));
 
   try {
-    setEtapa(`Verificando se a PGFN ainda publica o trimestre anterior (${trimestreAnterior})...`);
-    if (!(await headOk(urlArquivo(trimestreAnterior, "Previdenciario")))) {
-      throw new Error(
-        `A PGFN não disponibiliza mais os arquivos do trimestre anterior (${trimestreAnterior}). ` +
-          `O comparativo passará a ser alimentado automaticamente pelas próximas sincronizações.`
-      );
-    }
+    resetarEntradas();
 
-    db.prepare("DELETE FROM cnpjs_trimestre_ref").run();
-
-    let totalLinhas = 0;
-    for (const arquivo of ARQUIVOS) {
-      const zipPath = path.join(tmpDir, `${arquivo}.zip`);
-      const extractDir = path.join(tmpDir, arquivo);
-      fs.mkdirSync(extractDir, { recursive: true });
-
-      setEtapa(`Baixando ${arquivo} do trimestre anterior (${trimestreAnterior})... O arquivo é grande, aguarde.`);
-      await downloadFile(urlArquivo(trimestreAnterior, arquivo), zipPath);
-
-      setEtapa(`Extraindo ${arquivo}...`);
-      const csvs = await extrairZip(zipPath, extractDir);
-      fs.rmSync(zipPath, { force: true });
-
-      for (let i = 0; i < csvs.length; i++) {
-        const nomeCsv = path.basename(csvs[i]);
-        setEtapa(`Lendo CNPJs de ${arquivo} — ${nomeCsv} (${i + 1}/${csvs.length})...`);
-        totalLinhas += await coletarCnpjs(csvs[i], arquivo, (qtd) => {
-          if (qtd % 100000 < 5000) {
-            setEtapa(
-              `Lendo CNPJs de ${arquivo} — ${nomeCsv}: ${(totalLinhas + qtd).toLocaleString("pt-BR")} registros lidos...`
-            );
-          }
-        });
-        fs.rmSync(csvs[i], { force: true });
+    const trimestresComparados: string[] = [];
+    let trimestreSeguinte = trimestreAtual; // quem está ausente no baixado entrou neste
+    for (let passe = 0; passe < TRIMESTRES_ANTERIORES; passe++) {
+      const anterior = trimestreAnteriorDe(trimestreSeguinte);
+      if (!anterior) {
+        ultimoErro = `Trimestre em formato inesperado: ${trimestreSeguinte}`;
+        throw new Error(ultimoErro);
       }
-      fs.rmSync(extractDir, { recursive: true, force: true });
-    }
 
-    setEtapa("Comparando as duas bases (quem entrou no último trimestre)...");
-    const empresasNovas = marcarEmpresasNovasDoTrimestre(trimestreAtual);
+      setEtapa(`Verificando se a PGFN publica ${anterior}...`);
+      if (!(await headOk(urlArquivo(anterior, "Previdenciario")))) {
+        if (passe === 0) {
+          throw new Error(
+            `A PGFN não disponibiliza mais os arquivos do trimestre anterior (${anterior}). ` +
+              `O comparativo passará a ser alimentado automaticamente pelas próximas sincronizações.`
+          );
+        }
+        // Trimestres mais antigos indisponíveis: seguimos com o que foi comparado
+        break;
+      }
+
+      await baixarCnpjsDoTrimestre(anterior, tmpDir);
+
+      setEtapa(`Classificando quem entrou em ${trimestreSeguinte}...`);
+      aplicarPasseComparativo(trimestreSeguinte);
+      trimestresComparados.push(anterior);
+      trimestreSeguinte = anterior;
+    }
 
     // Libera espaço: o conjunto de referência não é mais necessário
     db.prepare("DELETE FROM cnpjs_trimestre_ref").run();
 
+    const porTrimestre = db
+      .prepare(
+        `SELECT entrou_na_base_em AS trimestre, COUNT(*) AS empresas
+         FROM empresas WHERE entrou_na_base_em IS NOT NULL AND qtd_dividas > 0
+         GROUP BY entrou_na_base_em ORDER BY entrou_na_base_em DESC`
+      )
+      .all() as { trimestre: string; empresas: number }[];
+
     const resultado: ComparativoResultado = {
       trimestreAtual,
-      trimestreAnterior,
-      empresasNovas,
+      trimestresComparados,
+      porTrimestre,
       executadoEm: new Date().toISOString(),
     };
     setConfig("comparativo_resultado", JSON.stringify(resultado));
+    const totalMarcadas = porTrimestre.reduce((s, p) => s + p.empresas, 0);
     setEtapa(
-      `Concluído: ${empresasNovas.toLocaleString("pt-BR")} empresas entraram na base no último trimestre.`
+      `Concluído: ${totalMarcadas.toLocaleString("pt-BR")} empresas classificadas por trimestre de entrada ` +
+        `(comparados ${trimestresComparados.length} trimestres anteriores).`
     );
     return resultado;
   } catch (error) {

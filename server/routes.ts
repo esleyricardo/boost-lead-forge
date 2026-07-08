@@ -17,6 +17,7 @@ import {
   listarEmpresas,
   listarEnriquecidas,
   listarParaExportacao,
+  listarTrimestresEntrada,
 } from "./services/empresas";
 import {
   executarSincronizacao,
@@ -127,7 +128,7 @@ function parseFiltro(query: Record<string, unknown>): EmpresasFiltro {
     valorMin: query.valorMin != null && query.valorMin !== "" ? Number(query.valorMin) : undefined,
     valorMax: query.valorMax != null && query.valorMax !== "" ? Number(query.valorMax) : undefined,
     apenasNovas: query.apenasNovas === "true",
-    entrouUltimoTrimestre: query.entrouUltimoTrimestre === "true",
+    trimestreEntrada: query.trimestreEntrada ? String(query.trimestreEntrada) : undefined,
     enriquecidas:
       query.enriquecidas === "sim" || query.enriquecidas === "nao"
         ? (query.enriquecidas as "sim" | "nao")
@@ -144,6 +145,15 @@ api.get(
   requireAuth,
   handle((req, res) => {
     res.json(listarEmpresas(parseFiltro(req.query as Record<string, unknown>)));
+  })
+);
+
+// Registrada antes de /empresas/:cnpj para a rota específica ter prioridade
+api.get(
+  "/empresas-meta/trimestres-entrada",
+  requireAuth,
+  handle((_req, res) => {
+    res.json({ trimestres: listarTrimestresEntrada() });
   })
 );
 

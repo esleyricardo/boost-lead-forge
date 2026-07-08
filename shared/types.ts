@@ -100,12 +100,17 @@ export interface EmpresasFiltro {
   valorMin?: number;
   valorMax?: number;
   apenasNovas?: boolean;
-  /** Apenas empresas que entraram na base no último trimestre (via comparativo) */
-  entrouUltimoTrimestre?: boolean;
+  /** Apenas empresas que entraram na base neste trimestre (ex: "2026_trimestre_01") */
+  trimestreEntrada?: string;
   enriquecidas?: "sim" | "nao";
   page?: number;
   pageSize?: number;
-  orderBy?: "valorTotal" | "dataInscricaoMaisRecente" | "razaoSocial" | "dataPrimeiraDeteccao";
+  orderBy?:
+    | "valorTotal"
+    | "dataInscricaoMaisRecente"
+    | "razaoSocial"
+    | "dataPrimeiraDeteccao"
+    | "entrouNaBaseEm";
   orderDir?: "asc" | "desc";
 }
 
@@ -148,10 +153,10 @@ export interface SyncConfig {
 export interface ComparativoResultado {
   /** Trimestre mais recente (o que está carregado na base) */
   trimestreAtual: string;
-  /** Trimestre anterior usado como referência da comparação */
-  trimestreAnterior: string;
-  /** Quantas empresas estão na base atual mas não estavam no trimestre anterior */
-  empresasNovas: number;
+  /** Trimestres anteriores baixados para a comparação (do mais recente ao mais antigo) */
+  trimestresComparados: string[];
+  /** Quantas empresas entraram na base em cada trimestre identificado */
+  porTrimestre: { trimestre: string; empresas: number }[];
   executadoEm: string;
 }
 

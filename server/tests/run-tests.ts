@@ -14,10 +14,14 @@ async function main() {
   const { db, setConfig } = await import("../db");
   const { normalizarLinha, normalizarData, parseValor, inserirLote, consolidarEmpresas, trimestresCandidatos } =
     await import("../services/pgfn-sync");
-  const { trimestreAnteriorDe, marcarEmpresasNovasDoTrimestre } = await import("../services/comparativo");
+  const { trimestreAnteriorDe, aplicarPasseComparativo, resetarEntradas } = await import(
+    "../services/comparativo"
+  );
   const { formatarCnpj, formatarTrimestre, gerarExcel } = await import("../services/excel");
   const { registrar, login } = await import("../auth");
-  const { listarEmpresas, buscarEmpresa } = await import("../services/empresas");
+  const { listarEmpresas, buscarEmpresa, listarTrimestresEntrada } = await import(
+    "../services/empresas"
+  );
 
   let passed = 0;
   const test = (nome: string, fn: () => void | Promise<void>) =>
@@ -196,26 +200,61 @@ async function main() {
     assert.equal(formatarTrimestre(null), "");
   });
 
-  await test("comparativo marca só as empresas ausentes no trimestre anterior", () => {
-    // Estado atual: ativas = 12345678000195 e 11222333000181
-    // Simula o trimestre anterior contendo apenas a empresa antiga
+  await test("comparativo em passes classifica o trimestre de entrada de cada empresa", () => {
+    // Estado atual (2026_trimestre_02): ativas = 12345678000195 e 11222333000181.
+    // Cenário: a antiga (123...) já existia nos dois trimestres anteriores;
+    // a nova (112...) só apareceu agora — ausente em ambos.
+    setConfig("trimestre_atual", "2026_trimestre_02");
+    resetarEntradas();
+
+    // Passe 1: ref = trimestre anterior (2026_trimestre_01) contém só a antiga
     db.prepare("DELETE FROM cnpjs_trimestre_ref").run();
     db.prepare("INSERT INTO cnpjs_trimestre_ref (cnpj) VALUES (?)").run("12345678000195");
-    setConfig("trimestre_atual", "2026_trimestre_02");
+    assert.equal(aplicarPasseComparativo("2026_trimestre_02"), 1);
 
-    const marcadas = marcarEmpresasNovasDoTrimestre("2026_trimestre_02");
-    assert.equal(marcadas, 1);
+    // Passe 2: ref = dois trimestres atrás (2025_trimestre_04) também só tem a antiga.
+    // Ninguém mais sem classificação está ausente — nenhum novo marcado.
+    assert.equal(aplicarPasseComparativo("2026_trimestre_01"), 0);
 
-    const filtradas = listarEmpresas({ entrouUltimoTrimestre: true, page: 1, pageSize: 10 });
+    const filtradas = listarEmpresas({
+      trimestreEntrada: "2026_trimestre_02",
+      page: 1,
+      pageSize: 10,
+    });
     assert.equal(filtradas.total, 1);
     assert.equal(filtradas.items[0].cnpj, "11222333000181");
     assert.equal(filtradas.items[0].entrouNaBaseEm, "2026_trimestre_02");
 
-    // A empresa que já existia no trimestre anterior não pode ser marcada
+    // A empresa presente nos trimestres anteriores fica sem marcação (antiga)
     const antiga = db
       .prepare("SELECT entrou_na_base_em FROM empresas WHERE cnpj = ?")
       .get("12345678000195") as { entrou_na_base_em: string | null };
     assert.equal(antiga.entrou_na_base_em, null);
+  });
+
+  await test("comparativo identifica entrada no trimestre intermediário", () => {
+    resetarEntradas();
+    // Passe 1: no trimestre anterior (2026_trimestre_01) AMBAS já existiam
+    db.prepare("DELETE FROM cnpjs_trimestre_ref").run();
+    db.prepare("INSERT INTO cnpjs_trimestre_ref (cnpj) VALUES (?)").run("12345678000195");
+    db.prepare("INSERT INTO cnpjs_trimestre_ref (cnpj) VALUES (?)").run("11222333000181");
+    assert.equal(aplicarPasseComparativo("2026_trimestre_02"), 0);
+
+    // Passe 2: dois trimestres atrás só existia a antiga → a outra entrou no intermediário
+    db.prepare("DELETE FROM cnpjs_trimestre_ref").run();
+    db.prepare("INSERT INTO cnpjs_trimestre_ref (cnpj) VALUES (?)").run("12345678000195");
+    assert.equal(aplicarPasseComparativo("2026_trimestre_01"), 1);
+
+    const meio = db
+      .prepare("SELECT entrou_na_base_em FROM empresas WHERE cnpj = ?")
+      .get("11222333000181") as { entrou_na_base_em: string | null };
+    assert.equal(meio.entrou_na_base_em, "2026_trimestre_01");
+
+    // Restaura o cenário do teste anterior para os testes seguintes
+    resetarEntradas();
+    db.prepare("DELETE FROM cnpjs_trimestre_ref").run();
+    db.prepare("INSERT INTO cnpjs_trimestre_ref (cnpj) VALUES (?)").run("12345678000195");
+    aplicarPasseComparativo("2026_trimestre_02");
   });
 
   await test("consolidarEmpresas marca trimestre de entrada de empresas novas", () => {
@@ -265,6 +304,10 @@ async function main() {
       .prepare("SELECT entrou_na_base_em FROM empresas WHERE cnpj = ?")
       .get("12345678000195") as { entrou_na_base_em: string | null };
     assert.equal(jaExistia.entrou_na_base_em, null);
+  });
+
+  await test("listarTrimestresEntrada retorna os trimestres distintos para o filtro", () => {
+    assert.deepEqual(listarTrimestresEntrada(), ["2026_trimestre_02"]);
   });
 
   console.log("Filtros:");

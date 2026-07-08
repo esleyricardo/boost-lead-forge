@@ -21,6 +21,7 @@ import {
   formatarCnpj,
   formatarData,
   formatarMoeda,
+  formatarTrimestre,
 } from "@/lib/api";
 import EmpresaDetalheDialog from "@/components/EmpresaDetalheDialog";
 import { Badge } from "@/components/ui/badge";
@@ -82,6 +83,14 @@ export default function Devedores() {
     queryFn: () =>
       api.get<{ status: EnriquecimentoStatus }>("/enriquecimento/status").then((r) => r.status),
     refetchInterval: (q) => (q.state.data?.executando ? 2000 : 15000),
+  });
+
+  const { data: trimestresEntrada } = useQuery({
+    queryKey: ["trimestres-entrada"],
+    queryFn: () =>
+      api
+        .get<{ trimestres: string[] }>("/empresas-meta/trimestres-entrada")
+        .then((r) => r.trimestres),
   });
 
   const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
@@ -305,22 +314,34 @@ export default function Devedores() {
               </SelectContent>
             </Select>
 
+            <Select
+              value={filtro.trimestreEntrada || TODAS}
+              onValueChange={(v) =>
+                atualizarFiltro({ trimestreEntrada: v === TODAS ? undefined : v })
+              }
+            >
+              <SelectTrigger
+                className="w-52"
+                title="Trimestre em que a empresa entrou na base da PGFN (apurado pelo comparativo, na aba Sincronização)"
+              >
+                <SelectValue placeholder="Entrou na base em" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={TODAS}>Entrou em qualquer período</SelectItem>
+                {trimestresEntrada?.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    Entrou no {formatarTrimestre(t)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
             <label className="flex items-center gap-2 text-sm">
               <Switch
                 checked={!!filtro.apenasNovas}
                 onCheckedChange={(v) => atualizarFiltro({ apenasNovas: v })}
               />
               Só novas
-            </label>
-            <label
-              className="flex items-center gap-2 text-sm"
-              title="Empresas presentes na base atual mas ausentes no trimestre anterior (execute o comparativo na aba Sincronização)"
-            >
-              <Switch
-                checked={!!filtro.entrouUltimoTrimestre}
-                onCheckedChange={(v) => atualizarFiltro({ entrouUltimoTrimestre: v })}
-              />
-              Entraram no último trimestre
             </label>
             <span className="ml-auto text-xs text-muted-foreground">
               Estes filtros são aplicados na hora, sem precisar clicar em Pesquisar
@@ -379,20 +400,37 @@ export default function Devedores() {
               <TableHead title="Data em que o sistema detectou a empresa na base">
                 Detectada em
               </TableHead>
+              <TableHead>
+                <button
+                  className="hover:underline"
+                  onClick={() =>
+                    atualizarFiltro({
+                      orderBy: "entrouNaBaseEm",
+                      orderDir:
+                        filtro.orderBy === "entrouNaBaseEm" && filtro.orderDir === "desc"
+                          ? "asc"
+                          : "desc",
+                    })
+                  }
+                  title="Trimestre em que a empresa entrou na base da PGFN (comparativo de trimestres). Vazio = já estava antes do período comparado."
+                >
+                  Entrou na base ↕
+                </button>
+              </TableHead>
               <TableHead>Contatos</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading && (
               <TableRow>
-                <TableCell colSpan={9} className="py-10 text-center">
+                <TableCell colSpan={10} className="py-10 text-center">
                   <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
                 </TableCell>
               </TableRow>
             )}
             {!isLoading && data?.items.length === 0 && (
               <TableRow>
-                <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
                   Nenhuma empresa encontrada. Ajuste os filtros ou execute uma sincronização.
                 </TableCell>
               </TableRow>
@@ -427,15 +465,6 @@ export default function Devedores() {
                     {e.isNova && (
                       <Badge className="bg-amber-500 hover:bg-amber-500">Nova</Badge>
                     )}
-                    {e.entrouNaBaseEm && (
-                      <Badge
-                        variant="outline"
-                        className="border-emerald-600 text-emerald-600"
-                        title="Empresa ausente no trimestre anterior da PGFN"
-                      >
-                        Entrou no trimestre
-                      </Badge>
-                    )}
                   </div>
                 </TableCell>
                 <TableCell>{e.uf || "—"}</TableCell>
@@ -449,6 +478,15 @@ export default function Devedores() {
                 <TableCell>{formatarData(e.dataInscricaoMaisRecente)}</TableCell>
                 <TableCell className="text-muted-foreground">
                   {formatarData(e.dataPrimeiraDeteccao)}
+                </TableCell>
+                <TableCell>
+                  {e.entrouNaBaseEm ? (
+                    <Badge variant="outline" className="border-emerald-600 text-emerald-600">
+                      {formatarTrimestre(e.entrouNaBaseEm)}
+                    </Badge>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
                 </TableCell>
                 <TableCell>
                   {e.enrichedAt ? (

@@ -132,3 +132,10 @@ export function formatarDataHora(valor: string | null | undefined): string {
   if (isNaN(d.getTime())) return valor;
   return d.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
+
+/** Formata "2026_trimestre_01" como "1º trim/2026". */
+export function formatarTrimestre(trimestre: string | null | undefined): string {
+  if (!trimestre) return "—";
+  const m = trimestre.match(/^(\d{4})_trimestre_0([1-4])$/);
+  return m ? `${m[2]}º trim/${m[1]}` : trimestre;
+}

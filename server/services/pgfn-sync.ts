@@ -491,6 +491,22 @@ export async function executarSincronizacao(
 
     setConfig("assinatura_pgfn", assinaturaAtual);
     setConfig("ultima_sincronizacao", new Date().toISOString());
+
+    // Após a PRIMEIRA carga, dispara o comparativo dos trimestres anteriores em
+    // segundo plano para classificar quando cada empresa entrou na base.
+    // (Import dinâmico para evitar dependência circular com comparativo.ts.)
+    if (dividasAntes === 0) {
+      setTimeout(async () => {
+        try {
+          const { executarComparativo } = await import("./comparativo");
+          console.log("[Sync] Primeira carga concluída; iniciando comparativo de trimestres...");
+          await executarComparativo();
+        } catch (err) {
+          console.error("[Comparativo automático] Erro:", err instanceof Error ? err.message : err);
+        }
+      }, 5000);
+    }
+
     return getSincronizacao(syncId)!;
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

@@ -254,10 +254,11 @@ export default function Sincronizacao() {
             <GitCompareArrows className="h-4 w-4" /> Comparativo de trimestres
           </CardTitle>
           <CardDescription>
-            Compara a base atual com a do trimestre anterior da PGFN e marca as empresas que{" "}
-            <strong>entraram na base no último trimestre</strong>. Depois, use o filtro
-            &quot;Entraram no último trimestre&quot; na aba Devedores. O processo baixa a base
-            anterior inteira e pode demorar.
+            Compara a base atual com as dos <strong>trimestres anteriores</strong> da PGFN (3
+            trimestres no total) e registra em qual trimestre cada empresa entrou na base — veja a
+            coluna &quot;Entrou na base&quot; e o filtro correspondente na aba Devedores. Roda
+            automaticamente após a primeira sincronização; o processo baixa as bases anteriores
+            inteiras e pode demorar.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -285,14 +286,23 @@ export default function Sincronizacao() {
             <p className="text-sm text-destructive">{comparativo.errorMessage}</p>
           )}
           {comparativo?.resultado && (
-            <div className="rounded-md bg-muted p-3 text-sm">
-              <p>
-                Último comparativo ({formatarDataHora(comparativo.resultado.executadoEm)}):{" "}
-                <strong>
-                  {comparativo.resultado.empresasNovas.toLocaleString("pt-BR")} empresas
-                </strong>{" "}
-                entraram na base no {formatarTrimestre(comparativo.resultado.trimestreAtual)} (em
-                relação ao {formatarTrimestre(comparativo.resultado.trimestreAnterior)}).
+            <div className="space-y-1 rounded-md bg-muted p-3 text-sm">
+              <p className="font-medium">
+                Último comparativo: {formatarDataHora(comparativo.resultado.executadoEm)}
+              </p>
+              {comparativo.resultado.porTrimestre.length === 0 && (
+                <p className="text-muted-foreground">
+                  Nenhuma empresa nova identificada no período comparado.
+                </p>
+              )}
+              {comparativo.resultado.porTrimestre.map((p) => (
+                <p key={p.trimestre}>
+                  Entraram no {formatarTrimestre(p.trimestre)}:{" "}
+                  <strong>{p.empresas.toLocaleString("pt-BR")} empresas</strong>
+                </p>
+              ))}
+              <p className="text-xs text-muted-foreground">
+                Empresas sem marcação já estavam na base antes do período comparado.
               </p>
             </div>
           )}
