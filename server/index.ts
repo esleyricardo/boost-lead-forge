@@ -27,21 +27,45 @@ if (fs.existsSync(distDir)) {
 }
 
 /**
- * Abre o navegador no app assim que o servidor está pronto. Usado pela versão
- * desktop (ativado por OPEN_BROWSER=1) — evita a "corrida" de abrir o navegador
- * antes do servidor subir, que causava "Failed to fetch" na primeira execução.
+ * Abre o app assim que o servidor está pronto (versão desktop, OPEN_BROWSER=1).
+ * No Windows, prefere o "modo aplicativo" do Edge/Chrome: janela própria, sem
+ * barra de endereço nem abas — aparência de programa nativo. Se não encontrar,
+ * cai para o navegador padrão.
  */
-function abrirNavegador(url: string): void {
-  const cmd =
-    process.platform === "win32"
-      ? { command: "cmd", args: ["/c", "start", "", url] }
-      : process.platform === "darwin"
-        ? { command: "open", args: [url] }
-        : { command: "xdg-open", args: [url] };
-  try {
-    spawn(cmd.command, cmd.args, { stdio: "ignore", detached: true }).unref();
-  } catch {
-    /* sem navegador disponível (ex.: servidor): ignora */
+function abrirJanelaApp(url: string): void {
+  // "error" chega de forma assíncrona quando o programa não existe; sem este
+  // tratador, o evento não capturado derrubaria o servidor inteiro.
+  const abrir = (command: string, args: string[]) => {
+    try {
+      const filho = spawn(command, args, { stdio: "ignore", detached: true });
+      filho.on("error", () => {
+        /* sem interface gráfica disponível (ex.: servidor na nuvem): ignora */
+      });
+      filho.unref();
+    } catch {
+      /* idem */
+    }
+  };
+
+  if (process.platform === "win32") {
+    const candidatos = [
+      path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Microsoft", "Edge", "Application", "msedge.exe"),
+      path.join(process.env["ProgramFiles"] || "C:\\Program Files", "Microsoft", "Edge", "Application", "msedge.exe"),
+      path.join(process.env["ProgramFiles"] || "C:\\Program Files", "Google", "Chrome", "Application", "chrome.exe"),
+      path.join(process.env["LOCALAPPDATA"] || "", "Google", "Chrome", "Application", "chrome.exe"),
+    ];
+    const navegador = candidatos.find((c) => fs.existsSync(c));
+    if (navegador) {
+      abrir(navegador, [`--app=${url}`]);
+    } else {
+      abrir("cmd", ["/c", "start", "", url]);
+    }
+    return;
+  }
+  if (process.platform === "darwin") {
+    abrir("open", [url]);
+  } else {
+    abrir("xdg-open", [url]);
   }
 }
 
@@ -51,6 +75,6 @@ app.listen(PORT, () => {
   recuperarSincronizacoesOrfas();
   reagendarCron();
   if (process.env.OPEN_BROWSER === "1") {
-    abrirNavegador(`http://localhost:${PORT}`);
+    abrirJanelaApp(`http://localhost:${PORT}`);
   }
 });

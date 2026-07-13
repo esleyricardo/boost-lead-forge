@@ -26,7 +26,9 @@ cabe tranquilamente.
 
 ## Uso no dia a dia
 
-- Dois cliques no atalho **"PGFN Devedores"** da área de trabalho → o navegador abre → use normalmente
+- Dois cliques no atalho **"PGFN Devedores"** da área de trabalho
+- O sistema abre em **janela própria de aplicativo** (sem barra de endereço
+  nem abas do navegador — visual de programa instalado)
 - **Não feche a janela preta** enquanto estiver usando (ela é o servidor)
 - Para encerrar: feche a janela preta
 
@@ -39,11 +41,28 @@ Os dados (empresas, dívidas, usuários) ficam em uma pasta **separada do app**:
 
 Por isso você pode apagar/substituir a pasta do app sem perder nada.
 
-## Como atualizar o sistema
+## Atualização automática (Windows)
 
-1. Baixe o ZIP novo do GitHub (mesmo passo 2 da instalação)
-2. Apague a pasta antiga do app e extraia a nova no lugar
-3. Dê dois cliques em `Iniciar-PGFN-Windows.bat` — seus dados continuam lá
+Você **não precisa baixar mais nada manualmente**: toda vez que abre o sistema
+pelo atalho, ele verifica no GitHub se há versão nova. Se houver, baixa e
+aplica sozinho (leva ~1 minuto) e depois inicia normalmente. Seus dados nunca
+são tocados.
+
+Para a verificação funcionar, escolha UMA das opções:
+
+**Opção A — tornar o repositório público (mais simples):**
+1. Acesse https://github.com/esleyricardo/boost-lead-forge/settings
+2. Role até o final (**Danger Zone**) → **Change visibility** → **Make public**
+
+**Opção B — manter privado, usando um token:**
+1. Acesse https://github.com/settings/tokens → **Generate new token (fine-grained)**
+2. Em "Repository access", selecione só o `boost-lead-forge`;
+   em "Permissions", dê **Contents: Read-only**
+3. Copie o token e cole-o num arquivo de texto salvo em:
+   `%LOCALAPPDATA%\PGFN-Devedores\token.txt`
+
+Se nenhuma das duas estiver configurada, o sistema apenas avisa que não pôde
+verificar e abre normalmente com a versão instalada.
 
 ## Observações
 
