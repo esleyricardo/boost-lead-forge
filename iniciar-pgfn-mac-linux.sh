@@ -26,16 +26,11 @@ if [ ! -d dist ]; then
   npm run build
 fi
 
-# Abre o navegador quando o servidor subir
-(
-  sleep 6
-  if command -v xdg-open >/dev/null 2>&1; then xdg-open http://localhost:3001; fi
-  if command -v open >/dev/null 2>&1; then open http://localhost:3001; fi
-) &
-
 echo
-echo "Sistema iniciando... o navegador vai abrir sozinho."
+echo "Sistema iniciando... o navegador abre sozinho quando o servidor estiver pronto."
 echo "Endereço: http://localhost:3001 — NÃO feche este terminal enquanto usa o sistema."
 echo
 
+# O próprio servidor abre o navegador quando terminar de subir
+export OPEN_BROWSER=1
 npm start

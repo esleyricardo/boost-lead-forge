@@ -1,6 +1,7 @@
 /**
  * Servidor Express: API + arquivos estáticos do frontend em produção.
  */
+import { spawn } from "child_process";
 import cors from "cors";
 import express from "express";
 import * as fs from "fs";
@@ -25,9 +26,31 @@ if (fs.existsSync(distDir)) {
   });
 }
 
+/**
+ * Abre o navegador no app assim que o servidor está pronto. Usado pela versão
+ * desktop (ativado por OPEN_BROWSER=1) — evita a "corrida" de abrir o navegador
+ * antes do servidor subir, que causava "Failed to fetch" na primeira execução.
+ */
+function abrirNavegador(url: string): void {
+  const cmd =
+    process.platform === "win32"
+      ? { command: "cmd", args: ["/c", "start", "", url] }
+      : process.platform === "darwin"
+        ? { command: "open", args: [url] }
+        : { command: "xdg-open", args: [url] };
+  try {
+    spawn(cmd.command, cmd.args, { stdio: "ignore", detached: true }).unref();
+  } catch {
+    /* sem navegador disponível (ex.: servidor): ignora */
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`[Server] API rodando em http://localhost:${PORT}`);
   // Limpa sincronizações interrompidas por um restart anterior
   recuperarSincronizacoesOrfas();
   reagendarCron();
+  if (process.env.OPEN_BROWSER === "1") {
+    abrirNavegador(`http://localhost:${PORT}`);
+  }
 });

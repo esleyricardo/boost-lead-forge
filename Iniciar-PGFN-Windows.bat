@@ -26,7 +26,10 @@ if not exist "%DATA_DIR%" mkdir "%DATA_DIR%"
 echo Dados salvos em: %DATA_DIR%
 echo.
 
-REM 3) Primeira execucao: instala dependencias e constroi a interface
+REM 3) Cria o atalho "PGFN Devedores" na area de trabalho (se nao existir)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path ([Environment]::GetFolderPath('Desktop')) 'PGFN Devedores.lnk'; if (-not (Test-Path $p)) { $s = (New-Object -ComObject WScript.Shell).CreateShortcut($p); $s.TargetPath = '%~f0'; $s.WorkingDirectory = '%~dp0'; $s.Description = 'Abrir o PGFN Devedores'; $s.IconLocation = '%SystemRoot%\System32\shell32.dll,13'; $s.Save(); Write-Host 'Atalho criado na area de trabalho.' }" 2>nul
+
+REM 4) Primeira execucao: instala dependencias e constroi a interface
 if not exist node_modules (
   echo Instalando dependencias ^(so na primeira vez, pode demorar alguns minutos^)...
   call npm install --no-audit --no-fund
@@ -46,12 +49,10 @@ if not exist dist (
   )
 )
 
-REM 4) Abre o navegador depois que o servidor subir
-start "" cmd /c "timeout /t 6 /nobreak >nul & start "" http://localhost:3001"
-
 echo.
 echo ============================================================
-echo   Sistema iniciando... o navegador vai abrir sozinho.
+echo   Sistema iniciando... o navegador abre sozinho QUANDO o
+echo   servidor estiver pronto ^(pode levar alguns segundos^).
 echo   Endereco: http://localhost:3001
 echo.
 echo   NAO FECHE ESTA JANELA enquanto estiver usando o sistema.
@@ -59,5 +60,7 @@ echo   Para encerrar, feche esta janela.
 echo ============================================================
 echo.
 
+REM O proprio servidor abre o navegador quando terminar de subir
+set OPEN_BROWSER=1
 npm start
 pause

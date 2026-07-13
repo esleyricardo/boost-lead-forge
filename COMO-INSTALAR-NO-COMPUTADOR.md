@@ -18,14 +18,15 @@ cabe tranquilamente.
 3. **Inicie**:
    - Entre na pasta extraída
    - Dê **dois cliques em `Iniciar-PGFN-Windows.bat`**
+   - Ele cria automaticamente o atalho **"PGFN Devedores"** na sua área de trabalho
    - Na primeira vez ele instala tudo sozinho (alguns minutos)
-   - O navegador abre automaticamente em `http://localhost:3001`
+   - O navegador abre automaticamente quando o servidor estiver pronto
 
 > Mac/Linux: no terminal, rode `bash iniciar-pgfn-mac-linux.sh`
 
 ## Uso no dia a dia
 
-- Dois cliques em `Iniciar-PGFN-Windows.bat` → o navegador abre → use normalmente
+- Dois cliques no atalho **"PGFN Devedores"** da área de trabalho → o navegador abre → use normalmente
 - **Não feche a janela preta** enquanto estiver usando (ela é o servidor)
 - Para encerrar: feche a janela preta
 

@@ -21,14 +21,23 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
-  const res = await fetch(`/api${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
+    });
+  } catch {
+    // fetch só lança assim quando não conseguiu falar com o servidor
+    throw new ApiError(
+      0,
+      "Não foi possível falar com o servidor. Verifique se a janela do servidor (tela preta) está aberta e aguarde alguns segundos após iniciá-la."
+    );
+  }
 
   if (res.status === 401) {
     setToken(null);
