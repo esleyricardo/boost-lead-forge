@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Download, Loader2, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Loader2, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import type { PaginatedEmpresas } from "@shared/types";
+import type { EmpresasFiltro, PaginatedEmpresas } from "@shared/types";
+import { UFS } from "@shared/types";
 import {
   api,
   downloadArquivo,
@@ -14,6 +15,14 @@ import EmpresaDetalheDialog from "@/components/EmpresaDetalheDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -23,24 +32,50 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+const TODAS = "__todas__";
+
+function filtroParaQuery(f: EmpresasFiltro): string {
+  const params = new URLSearchParams();
+  Object.entries(f).forEach(([k, v]) => {
+    if (v !== undefined && v !== "" && v !== false) params.set(k, String(v));
+  });
+  return params.toString();
+}
+
 export default function Enriquecidas() {
-  const [page, setPage] = useState(1);
+  const [buscaTexto, setBuscaTexto] = useState("");
+  const [filtro, setFiltro] = useState<EmpresasFiltro>({
+    enriquecidas: "sim",
+    orderBy: "enrichedAt",
+    orderDir: "desc",
+    page: 1,
+    pageSize: 25,
+  });
   const [detalheCnpj, setDetalheCnpj] = useState<string | null>(null);
   const [exportando, setExportando] = useState(false);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["enriquecidas", page],
-    queryFn: () => api.get<PaginatedEmpresas>(`/enriquecidas?page=${page}&pageSize=25`),
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ["enriquecidas", filtro],
+    queryFn: () => api.get<PaginatedEmpresas>(`/empresas?${filtroParaQuery(filtro)}`),
     placeholderData: keepPreviousData,
   });
 
   const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
+  function atualizarFiltro(mudancas: Partial<EmpresasFiltro>) {
+    setFiltro((f) => ({ ...f, ...mudancas, page: mudancas.page ?? 1 }));
+  }
+
+  function pesquisar(e: FormEvent) {
+    e.preventDefault();
+    atualizarFiltro({ busca: buscaTexto.trim() || undefined });
+  }
+
   async function exportar() {
     setExportando(true);
     try {
-      await downloadArquivo("/export/excel", { filtro: { enriquecidas: "sim" } });
-      toast.success("Excel das empresas enriquecidas gerado.");
+      await downloadArquivo("/export/excel", { filtro });
+      toast.success("Excel das empresas enriquecidas gerado (com os filtros atuais).");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao exportar.");
     } finally {
@@ -54,8 +89,15 @@ export default function Enriquecidas() {
         <div>
           <h1 className="text-2xl font-bold">Empresas enriquecidas</h1>
           <p className="text-sm text-muted-foreground">
-            Histórico das empresas cujos contatos já foram buscados no OpenCNPJ
-            {data ? ` — ${data.total.toLocaleString("pt-BR")} no total` : ""}
+            {isFetching ? (
+              <span className="inline-flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" /> Buscando...
+              </span>
+            ) : data ? (
+              `${data.total.toLocaleString("pt-BR")} empresas com contatos buscados no OpenCNPJ`
+            ) : (
+              "Carregando..."
+            )}
           </p>
         </div>
         <Button variant="outline" onClick={exportar} disabled={exportando || !data?.total}>
@@ -64,18 +106,56 @@ export default function Enriquecidas() {
           ) : (
             <Download className="mr-2 h-4 w-4" />
           )}
-          Exportar Excel
+          Exportar Excel (filtro atual)
         </Button>
       </div>
 
       <Card>
+        <CardContent className="pt-4">
+          <form onSubmit={pesquisar} className="flex flex-wrap items-end gap-3">
+            <div className="min-w-64 flex-1 space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                Empresa (nome ou CNPJ) — opcional
+              </label>
+              <Input
+                placeholder="Vazio = todas as enriquecidas"
+                value={buscaTexto}
+                onChange={(e) => setBuscaTexto(e.target.value)}
+              />
+            </div>
+            <Select
+              value={filtro.uf || TODAS}
+              onValueChange={(v) => atualizarFiltro({ uf: v === TODAS ? undefined : v })}
+            >
+              <SelectTrigger className="w-32">
+                <SelectValue placeholder="Estado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={TODAS}>Todos estados</SelectItem>
+                {UFS.map((uf) => (
+                  <SelectItem key={uf} value={uf}>
+                    {uf}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button type="submit" disabled={isFetching}>
+              <Search className="mr-2 h-4 w-4" />
+              Pesquisar
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card className={isFetching ? "pointer-events-none opacity-60 transition-opacity" : "transition-opacity"}>
         {!isLoading && data?.items.length === 0 ? (
           <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
             <Sparkles className="h-8 w-8 text-muted-foreground" />
-            <p className="font-medium">Nenhuma empresa enriquecida ainda</p>
+            <p className="font-medium">Nenhuma empresa enriquecida encontrada</p>
             <p className="max-w-md text-sm text-muted-foreground">
               Na página de Devedores, selecione as empresas desejadas e clique em
-              “Enriquecer selecionadas” para buscar telefone, email e sócios.
+              “Enriquecer selecionadas” (ou “Enriquecer toda a pesquisa”) para buscar telefone,
+              email e sócios.
             </p>
           </CardContent>
         ) : (
@@ -136,24 +216,41 @@ export default function Enriquecidas() {
                 ))}
               </TableBody>
             </Table>
-            <div className="flex items-center justify-between border-t p-3">
-              <p className="text-sm text-muted-foreground">
-                Página {data?.page || 1} de {totalPaginas}
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t p-3">
+              <div className="flex items-center gap-3">
+                <p className="text-sm text-muted-foreground">
+                  Página {data?.page || 1} de {totalPaginas.toLocaleString("pt-BR")}
+                </p>
+                <Select
+                  value={String(filtro.pageSize || 25)}
+                  onValueChange={(v) => atualizarFiltro({ pageSize: Number(v), page: 1 })}
+                >
+                  <SelectTrigger className="h-8 w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[25, 50, 100, 200].map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        {n} por página
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="flex gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
+                  disabled={(filtro.page || 1) <= 1}
+                  onClick={() => atualizarFiltro({ page: (filtro.page || 1) - 1 })}
                 >
                   <ChevronLeft className="h-4 w-4" /> Anterior
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={page >= totalPaginas}
-                  onClick={() => setPage((p) => p + 1)}
+                  disabled={(filtro.page || 1) >= totalPaginas}
+                  onClick={() => atualizarFiltro({ page: (filtro.page || 1) + 1 })}
                 >
                   Próxima <ChevronRight className="h-4 w-4" />
                 </Button>

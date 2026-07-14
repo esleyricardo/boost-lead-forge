@@ -1,7 +1,7 @@
 /**
  * Consultas de empresas devedoras com filtros e paginação.
  */
-import { db } from "../db";
+import { db, ftsDisponivel } from "../db";
 import type { Divida, Empresa, EmpresasFiltro, PaginatedEmpresas } from "../../shared/types";
 
 function ultimaSyncConcluidaId(): number | null {
@@ -16,17 +16,42 @@ interface WhereBuild {
   params: Record<string, unknown>;
 }
 
-function montarWhere(filtro: EmpresasFiltro, ultimaSyncId: number | null): WhereBuild {
+/**
+ * Monta a consulta MATCH do FTS trigram: cada palavra vira uma frase que casa
+ * com QUALQUER trecho do nome ("adari" encontra "PADARIA"). O trigram exige
+ * termos com 3+ caracteres; havendo algum termo menor, retorna null e a busca
+ * cai no modo tradicional.
+ */
+function montarConsultaFts(termo: string): string | null {
+  const semAcento = termo.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const tokens = semAcento.match(/[A-Za-z0-9]+/g);
+  if (!tokens || tokens.length === 0) return null;
+  if (tokens.some((t) => t.length < 3)) return null;
+  return tokens.map((t) => `"${t}"`).join(" AND ");
+}
+
+function montarWhere(
+  filtro: EmpresasFiltro,
+  ultimaSyncId: number | null,
+  modoBusca: "fts" | "like" = ftsDisponivel ? "fts" : "like"
+): WhereBuild {
   const conds: string[] = ["e.qtd_dividas > 0"];
   const params: Record<string, unknown> = {};
 
   if (filtro.busca?.trim()) {
     const termo = filtro.busca.trim();
     const somenteDigitos = termo.replace(/\D/g, "");
+    const consultaFts = modoBusca === "fts" ? montarConsultaFts(termo) : null;
     if (somenteDigitos.length >= 8 && somenteDigitos.length === termo.replace(/[.\-/\s]/g, "").length) {
-      // Parece um CNPJ: busca por prefixo do CNPJ
-      conds.push("e.cnpj LIKE @cnpjBusca");
-      params.cnpjBusca = `${somenteDigitos}%`;
+      // Parece um CNPJ: busca por faixa de prefixo (usa a chave primária,
+      // instantanea; LIKE nao aproveitaria o indice)
+      conds.push("e.cnpj >= @cnpjIni AND e.cnpj <= @cnpjFim");
+      params.cnpjIni = somenteDigitos.padEnd(14, "0");
+      params.cnpjFim = somenteDigitos.padEnd(14, "9");
+    } else if (consultaFts) {
+      // Busca por nome via indice de texto (quase instantanea em bases grandes)
+      conds.push("e.rowid IN (SELECT rowid FROM empresas_fts WHERE empresas_fts MATCH @ftsQuery)");
+      params.ftsQuery = consultaFts;
     } else {
       // Nome: os nomes da PGFN vêm sem acento; busca também a variante sem
       // acentos para "construção" encontrar "CONSTRUCAO"
@@ -83,6 +108,7 @@ const ORDER_COLS: Record<string, string> = {
   razaoSocial: "e.razao_social",
   // O formato "AAAA_trimestre_0N" ordena cronologicamente como texto
   entrouNaBaseEm: "e.entrou_na_base_em",
+  enrichedAt: "e.enriched_at",
 };
 
 const SELECT_EMPRESA = `
@@ -117,9 +143,12 @@ function mapEmpresa(row: Record<string, unknown>): Empresa {
   };
 }
 
-export function listarEmpresas(filtro: EmpresasFiltro): PaginatedEmpresas {
-  const ultimaSyncId = ultimaSyncConcluidaId();
-  const { sql: where, params } = montarWhere(filtro, ultimaSyncId);
+function consultarPagina(
+  filtro: EmpresasFiltro,
+  ultimaSyncId: number | null,
+  modoBusca: "fts" | "like"
+): PaginatedEmpresas {
+  const { sql: where, params } = montarWhere(filtro, ultimaSyncId, modoBusca);
 
   const page = Math.max(1, filtro.page || 1);
   const pageSize = Math.min(200, Math.max(1, filtro.pageSize || 25));
@@ -144,6 +173,13 @@ export function listarEmpresas(filtro: EmpresasFiltro): PaginatedEmpresas {
     }) as Record<string, unknown>[];
 
   return { items: rows.map(mapEmpresa), total, page, pageSize };
+}
+
+export function listarEmpresas(filtro: EmpresasFiltro): PaginatedEmpresas {
+  const ultimaSyncId = ultimaSyncConcluidaId();
+  // O trigram cobre trechos no meio da palavra; termos muito curtos (<3
+  // caracteres) caem automaticamente no modo tradicional dentro do montarWhere
+  return consultarPagina(filtro, ultimaSyncId, ftsDisponivel ? "fts" : "like");
 }
 
 export function buscarEmpresa(cnpj: string): { empresa: Empresa; dividas: Divida[] } | null {
@@ -206,6 +242,28 @@ export function listarParaExportacao(filtro: EmpresasFiltro, cnpjs?: string[]): 
     )
     .all({ ...params, ultimaSyncIdBadge: ultimaSyncId ?? -1 }) as Record<string, unknown>[];
   return rows.map(mapEmpresa);
+}
+
+/**
+ * CNPJs que casam com o filtro, para enriquecimento em massa.
+ * Por padrão só as ainda não enriquecidas. Teto de segurança de 20.000.
+ */
+export function listarCnpjsParaEnriquecimento(
+  filtro: EmpresasFiltro,
+  incluirJaEnriquecidas = false
+): string[] {
+  const ultimaSyncId = ultimaSyncConcluidaId();
+  const { sql: where, params } = montarWhere(filtro, ultimaSyncId);
+  const extra = incluirJaEnriquecidas ? "" : " AND e.enriched_at IS NULL";
+  const rows = db
+    .prepare(`SELECT e.cnpj FROM empresas e WHERE ${where}${extra} ORDER BY e.valor_total DESC LIMIT 20001`)
+    .all(params) as { cnpj: string }[];
+  if (rows.length > 20000) {
+    throw new Error(
+      "A pesquisa tem mais de 20.000 empresas para enriquecer. Refine os filtros (ex.: valor mínimo ou estado) e tente novamente."
+    );
+  }
+  return rows.map((r) => r.cnpj);
 }
 
 /** Trimestres de entrada distintos (para popular o filtro), do mais recente ao mais antigo. */

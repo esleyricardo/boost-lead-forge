@@ -101,6 +101,9 @@ CREATE INDEX IF NOT EXISTS idx_empresas_razao ON empresas (razao_social);
 -- em bases grandes (milhões de empresas)
 CREATE INDEX IF NOT EXISTS idx_empresas_ativas_valor
   ON empresas (valor_total DESC) WHERE qtd_dividas > 0;
+-- Acelera o filtro de recência (dívida inscrita a partir de...)
+CREATE INDEX IF NOT EXISTS idx_empresas_inscricao_recente
+  ON empresas (data_inscricao_mais_recente) WHERE qtd_dividas > 0;
 
 CREATE TABLE IF NOT EXISTS configuracoes (
   chave TEXT PRIMARY KEY,
@@ -119,6 +122,65 @@ CREATE TABLE IF NOT EXISTS cnpjs_trimestre_ref (
 const colunasEmpresas = db.prepare("PRAGMA table_info(empresas)").all() as { name: string }[];
 if (!colunasEmpresas.some((c) => c.name === "entrou_na_base_em")) {
   db.exec("ALTER TABLE empresas ADD COLUMN entrou_na_base_em TEXT");
+}
+
+// Índice de busca textual (FTS5/trigram) para pesquisa por nome quase
+// instantânea em bases com milhões de empresas — inclusive por trechos no
+// meio da palavra. Mantido em sincronia por triggers.
+const FTS_VERSAO = "2-trigram";
+export let ftsDisponivel = false;
+try {
+  const versaoFts = (
+    db.prepare("SELECT valor FROM configuracoes WHERE chave = 'fts_versao'").get() as
+      | { valor: string | null }
+      | undefined
+  )?.valor;
+  const precisaReconstruir = versaoFts !== FTS_VERSAO;
+  if (precisaReconstruir) {
+    // Estrutura antiga (ou inexistente): recria do zero
+    db.exec(`
+      DROP TRIGGER IF EXISTS empresas_fts_ai;
+      DROP TRIGGER IF EXISTS empresas_fts_ad;
+      DROP TRIGGER IF EXISTS empresas_fts_au;
+      DROP TABLE IF EXISTS empresas_fts;
+    `);
+  }
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS empresas_fts USING fts5(
+      razao_social,
+      content='empresas',
+      content_rowid='rowid',
+      tokenize='trigram'
+    );
+    CREATE TRIGGER IF NOT EXISTS empresas_fts_ai AFTER INSERT ON empresas BEGIN
+      INSERT INTO empresas_fts(rowid, razao_social) VALUES (new.rowid, new.razao_social);
+    END;
+    CREATE TRIGGER IF NOT EXISTS empresas_fts_ad AFTER DELETE ON empresas BEGIN
+      INSERT INTO empresas_fts(empresas_fts, rowid, razao_social) VALUES ('delete', old.rowid, old.razao_social);
+    END;
+    CREATE TRIGGER IF NOT EXISTS empresas_fts_au AFTER UPDATE OF razao_social ON empresas BEGIN
+      INSERT INTO empresas_fts(empresas_fts, rowid, razao_social) VALUES ('delete', old.rowid, old.razao_social);
+      INSERT INTO empresas_fts(rowid, razao_social) VALUES (new.rowid, new.razao_social);
+    END;
+  `);
+  // Índice novo ou de versão antiga: preenche a partir dos dados existentes.
+  // (Não dá para "espiar" se está vazio: consultas simples numa tabela FTS de
+  // conteúdo externo leem da tabela de origem.)
+  if (precisaReconstruir) {
+    console.log("[DB] Construindo índice de busca por nome (só na primeira vez, aguarde)...");
+    db.prepare("INSERT INTO empresas_fts(empresas_fts) VALUES ('rebuild')").run();
+    console.log("[DB] Índice de busca pronto.");
+  }
+  db.prepare(
+    `INSERT INTO configuracoes (chave, valor, updated_at) VALUES ('fts_versao', ?, datetime('now'))
+     ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor, updated_at = excluded.updated_at`
+  ).run(FTS_VERSAO);
+  ftsDisponivel = true;
+} catch (err) {
+  console.warn(
+    "[DB] FTS5 indisponível; a busca por nome usará o modo tradicional.",
+    err instanceof Error ? err.message : err
+  );
 }
 
 /**

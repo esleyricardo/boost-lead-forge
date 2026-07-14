@@ -27,9 +27,22 @@ function sociosParaTexto(sociosJson: string | null): string {
 }
 
 export async function gerarExcel(empresas: Empresa[]): Promise<Buffer> {
-  const workbook = new ExcelJS.Workbook();
+  // Gerador em streaming: bem mais rápido e com menos memória para
+  // exportações grandes (dezenas de milhares de linhas)
+  const { PassThrough } = await import("stream");
+  const stream = new PassThrough();
+  const chunks: Buffer[] = [];
+  stream.on("data", (c: Buffer) => chunks.push(c));
+  const fim = new Promise<void>((resolve, reject) => {
+    stream.on("end", resolve);
+    stream.on("error", reject);
+  });
+
+  const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream, useStyles: true });
   workbook.creator = "PGFN Devedores";
-  const sheet = workbook.addWorksheet("Devedores PGFN");
+  const sheet = workbook.addWorksheet("Devedores PGFN", {
+    views: [{ state: "frozen", ySplit: 1 }],
+  });
 
   sheet.columns = [
     { header: "CNPJ", key: "cnpj", width: 20 },
@@ -52,41 +65,41 @@ export async function gerarExcel(empresas: Empresa[]): Promise<Buffer> {
     { header: "Enriquecida em", key: "enrichedAt", width: 20 },
   ];
 
-  sheet.getRow(1).font = { bold: true };
-  sheet.getRow(1).fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF1E3A5F" },
-  };
-  sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-
-  for (const e of empresas) {
-    sheet.addRow({
-      cnpj: formatarCnpj(e.cnpj),
-      razaoSocial: e.razaoSocial,
-      uf: e.uf || "",
-      municipio: e.municipio || "",
-      naturezas: e.naturezas,
-      qtdDividas: e.qtdDividas,
-      valorTotal: e.valorTotal,
-      dataAntiga: e.dataInscricaoMaisAntiga || "",
-      dataRecente: e.dataInscricaoMaisRecente || "",
-      dataDeteccao: e.dataPrimeiraDeteccao?.slice(0, 10) || "",
-      entrouNaBase: formatarTrimestre(e.entrouNaBaseEm),
-      telefones: e.telefones || "",
-      email: e.email || "",
-      socios: sociosParaTexto(e.socios),
-      cnae: e.cnaeDescricao || "",
-      abertura: e.dataAberturaEmpresa || "",
-      situacao: e.situacaoCadastral || "",
-      enrichedAt: e.enrichedAt?.slice(0, 16).replace("T", " ") || "",
-    });
-  }
-
   sheet.getColumn("valorTotal").numFmt = "#,##0.00";
   sheet.autoFilter = { from: "A1", to: "R1" };
-  sheet.views = [{ state: "frozen", ySplit: 1 }];
 
-  const buffer = await workbook.xlsx.writeBuffer();
-  return Buffer.from(buffer);
+  const cab = sheet.getRow(1);
+  cab.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  cab.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E3A5F" } };
+  cab.commit();
+
+  for (const e of empresas) {
+    sheet
+      .addRow({
+        cnpj: formatarCnpj(e.cnpj),
+        razaoSocial: e.razaoSocial,
+        uf: e.uf || "",
+        municipio: e.municipio || "",
+        naturezas: e.naturezas,
+        qtdDividas: e.qtdDividas,
+        valorTotal: e.valorTotal,
+        dataAntiga: e.dataInscricaoMaisAntiga || "",
+        dataRecente: e.dataInscricaoMaisRecente || "",
+        dataDeteccao: e.dataPrimeiraDeteccao?.slice(0, 10) || "",
+        entrouNaBase: formatarTrimestre(e.entrouNaBaseEm),
+        telefones: e.telefones || "",
+        email: e.email || "",
+        socios: sociosParaTexto(e.socios),
+        cnae: e.cnaeDescricao || "",
+        abertura: e.dataAberturaEmpresa || "",
+        situacao: e.situacaoCadastral || "",
+        enrichedAt: e.enrichedAt?.slice(0, 16).replace("T", " ") || "",
+      })
+      .commit();
+  }
+
+  sheet.commit();
+  await workbook.commit();
+  await fim;
+  return Buffer.concat(chunks);
 }

@@ -15,6 +15,18 @@ const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
+
+// Diagnóstico de desempenho: registra no log qualquer requisição lenta,
+// com a rota e os parâmetros — ajuda a rastrear onde o app "trava"
+app.use((req, res, next) => {
+  const inicio = Date.now();
+  res.on("finish", () => {
+    const ms = Date.now() - inicio;
+    if (ms > 800) console.log(`[Lento ${ms}ms] ${req.method} ${req.originalUrl}`);
+  });
+  next();
+});
+
 app.use("/api", api);
 
 // Em produção, serve o build do Vite (dist/)

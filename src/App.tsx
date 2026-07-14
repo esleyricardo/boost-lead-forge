@@ -15,7 +15,14 @@ import Usuarios from "@/pages/Usuarios";
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { retry: 1, refetchOnWindowFocus: false },
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false,
+      // Ao alternar entre abas, reaproveita o resultado já carregado em vez
+      // de buscar tudo de novo (a base tem milhões de registros)
+      staleTime: 5 * 60_000,
+      gcTime: 30 * 60_000,
+    },
   },
 });
 

@@ -114,7 +114,8 @@ export interface EmpresasFiltro {
     | "dataInscricaoMaisRecente"
     | "razaoSocial"
     | "dataPrimeiraDeteccao"
-    | "entrouNaBaseEm";
+    | "entrouNaBaseEm"
+    | "enrichedAt";
   orderDir?: "asc" | "desc";
 }
 

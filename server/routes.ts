@@ -16,6 +16,7 @@ import {
 } from "./auth";
 import {
   buscarEmpresa,
+  listarCnpjsParaEnriquecimento,
   listarEmpresas,
   listarEnriquecidas,
   listarParaExportacao,
@@ -204,6 +205,23 @@ api.post(
       throw new HttpError(400, "Selecione no máximo 500 empresas por vez.");
     }
     res.json({ status: iniciarEnriquecimento(cnpjs.map(String), req.usuario!.id) });
+  })
+);
+
+// Enriquece TODAS as empresas que casam com o filtro atual da pesquisa
+api.post(
+  "/enriquecimento/filtro",
+  requireAuth,
+  handle((req, res) => {
+    const { filtro, incluirJaEnriquecidas } = req.body || {};
+    const cnpjs = listarCnpjsParaEnriquecimento(
+      parseFiltro(filtro || {}),
+      incluirJaEnriquecidas === true
+    );
+    if (cnpjs.length === 0) {
+      throw new HttpError(400, "Nenhuma empresa para enriquecer nesta pesquisa (talvez todas já estejam enriquecidas).");
+    }
+    res.json({ status: iniciarEnriquecimento(cnpjs, req.usuario!.id) });
   })
 );
 

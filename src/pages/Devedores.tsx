@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft,
@@ -24,6 +24,17 @@ import {
   formatarTrimestre,
 } from "@/lib/api";
 import EmpresaDetalheDialog from "@/components/EmpresaDetalheDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -79,17 +90,42 @@ function opcoesTrimestreInscricao(n = 6): { valor: string; label: string }[] {
   return out;
 }
 
+const FILTRO_PADRAO: EmpresasFiltro = { page: 1, pageSize: 25, orderBy: "valorTotal", orderDir: "desc" };
+const CHAVE_ESTADO = "devedores_estado_ui";
+
+/** Restaura a pesquisa ao voltar para a aba (senão tudo resetava ao navegar). */
+function estadoInicial() {
+  try {
+    const salvo = sessionStorage.getItem(CHAVE_ESTADO);
+    if (salvo) {
+      const e = JSON.parse(salvo);
+      return {
+        filtro: { ...FILTRO_PADRAO, ...(e.filtro || {}) } as EmpresasFiltro,
+        busca: String(e.busca || ""),
+        valorMinTexto: String(e.valorMinTexto || ""),
+        valorMaxTexto: String(e.valorMaxTexto || ""),
+      };
+    }
+  } catch {
+    /* estado corrompido: usa o padrão */
+  }
+  return { filtro: FILTRO_PADRAO, busca: "", valorMinTexto: "", valorMaxTexto: "" };
+}
+
 export default function Devedores() {
   const queryClient = useQueryClient();
-  const [busca, setBusca] = useState("");
-  const [valorMinTexto, setValorMinTexto] = useState("");
-  const [valorMaxTexto, setValorMaxTexto] = useState("");
-  const [filtro, setFiltro] = useState<EmpresasFiltro>({
-    page: 1,
-    pageSize: 25,
-    orderBy: "valorTotal",
-    orderDir: "desc",
-  });
+  const inicial = useMemo(estadoInicial, []);
+  const [busca, setBusca] = useState(inicial.busca);
+  const [valorMinTexto, setValorMinTexto] = useState(inicial.valorMinTexto);
+  const [valorMaxTexto, setValorMaxTexto] = useState(inicial.valorMaxTexto);
+  const [filtro, setFiltro] = useState<EmpresasFiltro>(inicial.filtro);
+
+  useEffect(() => {
+    sessionStorage.setItem(
+      CHAVE_ESTADO,
+      JSON.stringify({ filtro, busca, valorMinTexto, valorMaxTexto })
+    );
+  }, [filtro, busca, valorMinTexto, valorMaxTexto]);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [detalheCnpj, setDetalheCnpj] = useState<string | null>(null);
   const [exportando, setExportando] = useState(false);
@@ -133,7 +169,21 @@ export default function Devedores() {
     setBusca("");
     setValorMinTexto("");
     setValorMaxTexto("");
-    setFiltro({ page: 1, pageSize: 25, orderBy: "valorTotal", orderDir: "desc" });
+    setFiltro(FILTRO_PADRAO);
+  }
+
+  async function enriquecerPesquisa() {
+    try {
+      const r = await api.post<{ status: EnriquecimentoStatus }>("/enriquecimento/filtro", {
+        filtro,
+      });
+      toast.success(
+        `Enriquecimento de ${r.status.total.toLocaleString("pt-BR")} empresa(s) da pesquisa iniciado.`
+      );
+      queryClient.invalidateQueries({ queryKey: ["enriquecimento-status"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao iniciar enriquecimento.");
+    }
   }
 
   const todosDaPaginaSelecionados = useMemo(
@@ -196,7 +246,7 @@ export default function Devedores() {
             )}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             onClick={enriquecerSelecionadas}
             disabled={selecionados.size === 0 || enrStatus?.executando}
@@ -204,6 +254,32 @@ export default function Devedores() {
             <Sparkles className="mr-2 h-4 w-4" />
             Enriquecer selecionadas ({selecionados.size})
           </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="secondary" disabled={enrStatus?.executando || !data?.total}>
+                <Sparkles className="mr-2 h-4 w-4" />
+                Enriquecer toda a pesquisa
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Enriquecer toda a pesquisa?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Serão enriquecidas as empresas <strong>ainda não enriquecidas</strong> que casam
+                  com os filtros atuais ({data?.total.toLocaleString("pt-BR")} empresas na
+                  pesquisa, limite de 20.000 por vez). A consulta ao OpenCNPJ respeita um ritmo
+                  seguro: cada 1.000 empresas levam cerca de 7 minutos. O processo roda em segundo
+                  plano e você pode acompanhar pela barra de progresso.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={enriquecerPesquisa}>
+                  Iniciar enriquecimento
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           <Button variant="outline" onClick={exportarExcel} disabled={exportando}>
             {exportando ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -558,10 +634,27 @@ export default function Devedores() {
           </TableBody>
         </Table>
 
-        <div className="flex items-center justify-between border-t p-3">
-          <p className="text-sm text-muted-foreground">
-            Página {data?.page || 1} de {totalPaginas}
-          </p>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t p-3">
+          <div className="flex items-center gap-3">
+            <p className="text-sm text-muted-foreground">
+              Página {data?.page || 1} de {totalPaginas.toLocaleString("pt-BR")}
+            </p>
+            <Select
+              value={String(filtro.pageSize || 25)}
+              onValueChange={(v) => atualizarFiltro({ pageSize: Number(v), page: 1 })}
+            >
+              <SelectTrigger className="h-8 w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[25, 50, 100, 200].map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n} por página
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="flex gap-2">
             <Button
               variant="outline"
