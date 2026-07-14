@@ -35,9 +35,10 @@ import type { DashboardMetrics, EmpresasFiltro, SyncConfig } from "../shared/typ
 
 export const api = Router();
 
-// Usado pelos serviços de hospedagem para verificar que o app está no ar
+// Usado pelos serviços de hospedagem para verificar que o app está no ar.
+// "versao" é o commit instalado (definido pelo inicializador desktop).
 api.get("/health", (_req, res) => {
-  res.json({ ok: true });
+  res.json({ ok: true, versao: (process.env.APP_VERSAO || "").slice(0, 7) || null });
 });
 
 function handle(fn: (req: AuthRequest, res: Response) => void | Promise<void>) {

@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation, Navigate } from "react-router-dom";
 import {
   Building2,
@@ -102,6 +102,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const { usuario, carregando, logout } = useAuth();
   const location = useLocation();
   const [alterarSenhaAberto, setAlterarSenhaAberto] = useState(false);
+  const [versao, setVersao] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .get<{ ok: boolean; versao: string | null }>("/health")
+      .then((r) => setVersao(r.versao))
+      .catch(() => {});
+  }, []);
 
   if (carregando) {
     return (
@@ -173,6 +181,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <LogOut className="mr-2 h-4 w-4" />
             Sair
           </Button>
+          {versao && (
+            <p className="mt-2 px-2 text-[10px] text-muted-foreground" title="Versão instalada (commit)">
+              versão {versao}
+            </p>
+          )}
         </div>
       </aside>
 

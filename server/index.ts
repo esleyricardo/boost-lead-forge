@@ -1,14 +1,17 @@
 /**
  * Servidor Express: API + arquivos estáticos do frontend em produção.
  */
-import { spawn } from "child_process";
+import { spawn, type ChildProcess } from "child_process";
 import cors from "cors";
 import express from "express";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { api } from "./routes";
+import { isComparando } from "./services/comparativo";
 import { reagendarCron } from "./services/cron";
-import { recuperarSincronizacoesOrfas } from "./services/pgfn-sync";
+import { getEnriquecimentoStatus } from "./services/enrichment";
+import { isSincronizando, recuperarSincronizacoesOrfas } from "./services/pgfn-sync";
 
 const PORT = Number(process.env.PORT) || 3001;
 const app = express();
@@ -38,27 +41,25 @@ if (fs.existsSync(distDir)) {
   });
 }
 
-/**
- * Abre o app assim que o servidor está pronto (versão desktop, OPEN_BROWSER=1).
- * No Windows, prefere o "modo aplicativo" do Edge/Chrome: janela própria, sem
- * barra de endereço nem abas — aparência de programa nativo. Se não encontrar,
- * cai para o navegador padrão.
- */
-function abrirJanelaApp(url: string): void {
-  // "error" chega de forma assíncrona quando o programa não existe; sem este
-  // tratador, o evento não capturado derrubaria o servidor inteiro.
-  const abrir = (command: string, args: string[]) => {
-    try {
-      const filho = spawn(command, args, { stdio: "ignore", detached: true });
-      filho.on("error", () => {
-        /* sem interface gráfica disponível (ex.: servidor na nuvem): ignora */
-      });
-      filho.unref();
-    } catch {
-      /* idem */
-    }
-  };
+/** Abre a URL no navegador padrão, sem vínculo com este processo. */
+function abrirDesvinculado(command: string, args: string[]): void {
+  try {
+    const filho = spawn(command, args, { stdio: "ignore", detached: true });
+    // "error" chega de forma assíncrona quando o programa não existe; sem este
+    // tratador, o evento não capturado derrubaria o servidor inteiro.
+    filho.on("error", () => {});
+    filho.unref();
+  } catch {
+    /* sem interface gráfica disponível (ex.: servidor na nuvem): ignora */
+  }
+}
 
+/**
+ * Abre o app em janela própria (modo aplicativo do Edge/Chrome, sem barra de
+ * endereço). Retorna o processo da janela quando conseguimos acompanhá-lo —
+ * usado para encerrar o servidor quando o usuário fecha a janela.
+ */
+function abrirJanelaApp(url: string): ChildProcess | null {
   if (process.platform === "win32") {
     const candidatos = [
       path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Microsoft", "Edge", "Application", "msedge.exe"),
@@ -68,25 +69,61 @@ function abrirJanelaApp(url: string): void {
     ];
     const navegador = candidatos.find((c) => fs.existsSync(c));
     if (navegador) {
-      abrir(navegador, [`--app=${url}`]);
-    } else {
-      abrir("cmd", ["/c", "start", "", url]);
+      try {
+        // Perfil dedicado: garante um processo próprio para a janela do app,
+        // permitindo saber quando ela é fechada
+        const perfil = path.join(process.env["LOCALAPPDATA"] || os.tmpdir(), "PGFN-Devedores", "janela");
+        fs.mkdirSync(perfil, { recursive: true });
+        const filho = spawn(navegador, [`--app=${url}`, `--user-data-dir=${perfil}`, "--no-first-run"], {
+          stdio: "ignore",
+        });
+        filho.on("error", () => abrirDesvinculado("cmd", ["/c", "start", "", url]));
+        return filho;
+      } catch {
+        /* cai para o navegador padrão abaixo */
+      }
     }
-    return;
+    abrirDesvinculado("cmd", ["/c", "start", "", url]);
+    return null;
   }
-  if (process.platform === "darwin") {
-    abrir("open", [url]);
-  } else {
-    abrir("xdg-open", [url]);
-  }
+  abrirDesvinculado(process.platform === "darwin" ? "open" : "xdg-open", [url]);
+  return null;
 }
 
-app.listen(PORT, () => {
+/** Encerra o servidor quando a janela fecha — mas espera tarefas em andamento. */
+function encerrarQuandoOcioso(): void {
+  const ocupado =
+    isSincronizando() || isComparando() || getEnriquecimentoStatus().executando;
+  if (ocupado) {
+    console.log(
+      "[Server] Janela fechada, mas há sincronização/enriquecimento em andamento; o servidor continua até concluir."
+    );
+    setTimeout(encerrarQuandoOcioso, 60_000);
+    return;
+  }
+  console.log("[Server] Janela do app fechada; encerrando o servidor.");
+  process.exit(0);
+}
+
+const servidor = app.listen(PORT, () => {
   console.log(`[Server] API rodando em http://localhost:${PORT}`);
   // Limpa sincronizações interrompidas por um restart anterior
   recuperarSincronizacoesOrfas();
   reagendarCron();
   if (process.env.OPEN_BROWSER === "1") {
-    abrirJanelaApp(`http://localhost:${PORT}`);
+    const janela = abrirJanelaApp(`http://localhost:${PORT}`);
+    if (janela) janela.on("exit", encerrarQuandoOcioso);
   }
+});
+
+// Já existe outra instância rodando? Só abre a janela apontando para ela.
+servidor.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE" && process.env.OPEN_BROWSER === "1") {
+    console.log("[Server] O sistema já está aberto; reabrindo a janela do app.");
+    abrirDesvinculado("cmd", ["/c", "start", "", `http://localhost:${PORT}`]);
+    setTimeout(() => process.exit(0), 1500);
+    return;
+  }
+  console.error("[Server] Falha ao iniciar:", err.message);
+  process.exit(1);
 });
