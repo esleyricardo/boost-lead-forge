@@ -102,6 +102,10 @@ export interface EmpresasFiltro {
   apenasNovas?: boolean;
   /** Apenas empresas que entraram na base neste trimestre (ex: "2026_trimestre_01") */
   trimestreEntrada?: string;
+  /** Dívida mais recente inscrita a partir desta data (AAAA-MM-DD) */
+  inscricaoDe?: string;
+  /** Dívida mais recente inscrita até esta data (AAAA-MM-DD) */
+  inscricaoAte?: string;
   enriquecidas?: "sim" | "nao";
   page?: number;
   pageSize?: number;

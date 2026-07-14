@@ -152,6 +152,8 @@ function parseFiltro(query: Record<string, unknown>): EmpresasFiltro {
     valorMax: query.valorMax != null && query.valorMax !== "" ? Number(query.valorMax) : undefined,
     apenasNovas: query.apenasNovas === "true",
     trimestreEntrada: query.trimestreEntrada ? String(query.trimestreEntrada) : undefined,
+    inscricaoDe: query.inscricaoDe ? String(query.inscricaoDe) : undefined,
+    inscricaoAte: query.inscricaoAte ? String(query.inscricaoAte) : undefined,
     enriquecidas:
       query.enriquecidas === "sim" || query.enriquecidas === "nao"
         ? (query.enriquecidas as "sim" | "nao")

@@ -350,6 +350,22 @@ async function main() {
     assert.equal(listarEmpresas({ busca: "exemplo", page: 1, pageSize: 10 }).total, 1);
   });
 
+  await test("filtro por recência da dívida (inscricaoDe) mantém só as recentes", () => {
+    // Empresas ativas têm dívida mais recente em 2019 (EXEMPLO, RECEM CHEGADA)
+    // e 2026-06-02 (EMPRESA NOVA)
+    const todas = listarEmpresas({ page: 1, pageSize: 10 }).total;
+    assert.ok(todas >= 2);
+    const recentes = listarEmpresas({ inscricaoDe: "2026-01-01", page: 1, pageSize: 10 });
+    assert.equal(recentes.total, 1);
+    assert.equal(recentes.items[0].cnpj, "11222333000181");
+    // Faixa fechada também funciona
+    assert.equal(
+      listarEmpresas({ inscricaoDe: "2019-01-01", inscricaoAte: "2019-12-31", page: 1, pageSize: 10 })
+        .total,
+      todas - 1
+    );
+  });
+
   console.log("Autenticação:");
   await test("primeiro usuário vira admin aprovado; segundo fica pendente", () => {
     const u1 = registrar("Admin", "admin@x.com", "123456");

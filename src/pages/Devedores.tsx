@@ -57,6 +57,28 @@ function filtroParaQuery(f: EmpresasFiltro): string {
   return params.toString();
 }
 
+/**
+ * Gera as opções "Dívida inscrita a partir do Xº trim/AAAA" para os últimos
+ * `n` trimestres já iniciados, do mais recente ao mais antigo. Cada opção tem
+ * a data de início do trimestre (AAAA-MM-DD).
+ */
+function opcoesTrimestreInscricao(n = 6): { valor: string; label: string }[] {
+  const hoje = new Date();
+  let ano = hoje.getFullYear();
+  let tri = Math.floor(hoje.getMonth() / 3) + 1; // 1..4
+  const out: { valor: string; label: string }[] = [];
+  for (let i = 0; i < n; i++) {
+    const mesInicio = String((tri - 1) * 3 + 1).padStart(2, "0");
+    out.push({ valor: `${ano}-${mesInicio}-01`, label: `${tri}º trim/${ano}` });
+    tri--;
+    if (tri === 0) {
+      tri = 4;
+      ano--;
+    }
+  }
+  return out;
+}
+
 export default function Devedores() {
   const queryClient = useQueryClient();
   const [busca, setBusca] = useState("");
@@ -303,6 +325,28 @@ export default function Devedores() {
                 {UFS.map((uf) => (
                   <SelectItem key={uf} value={uf}>
                     {uf}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={filtro.inscricaoDe || TODAS}
+              onValueChange={(v) =>
+                atualizarFiltro({ inscricaoDe: v === TODAS ? undefined : v })
+              }
+            >
+              <SelectTrigger
+                className="w-60"
+                title="Mantém só empresas cuja dívida mais recente foi inscrita a partir do trimestre escolhido (data oficial da PGFN). Serve para focar nas mais recentes."
+              >
+                <SelectValue placeholder="Dívida inscrita a partir de" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={TODAS}>Dívida de qualquer período</SelectItem>
+                {opcoesTrimestreInscricao().map((o) => (
+                  <SelectItem key={o.valor} value={o.valor}>
+                    Dívida a partir do {o.label}
                   </SelectItem>
                 ))}
               </SelectContent>

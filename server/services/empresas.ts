@@ -61,6 +61,15 @@ function montarWhere(filtro: EmpresasFiltro, ultimaSyncId: number | null): Where
     conds.push("e.entrou_na_base_em = @trimestreEntrada");
     params.trimestreEntrada = filtro.trimestreEntrada;
   }
+  // Recência pela data OFICIAL de inscrição da dívida mais recente da empresa
+  if (filtro.inscricaoDe) {
+    conds.push("e.data_inscricao_mais_recente >= @inscricaoDe");
+    params.inscricaoDe = filtro.inscricaoDe;
+  }
+  if (filtro.inscricaoAte) {
+    conds.push("e.data_inscricao_mais_recente <= @inscricaoAte");
+    params.inscricaoAte = filtro.inscricaoAte;
+  }
   if (filtro.enriquecidas === "sim") conds.push("e.enriched_at IS NOT NULL");
   if (filtro.enriquecidas === "nao") conds.push("e.enriched_at IS NULL");
 
