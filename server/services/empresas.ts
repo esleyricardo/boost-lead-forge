@@ -21,13 +21,19 @@ function montarWhere(filtro: EmpresasFiltro, ultimaSyncId: number | null): Where
   const params: Record<string, unknown> = {};
 
   if (filtro.busca?.trim()) {
-    const somenteDigitos = filtro.busca.replace(/\D/g, "");
-    if (somenteDigitos.length >= 8 && somenteDigitos.length === filtro.busca.replace(/[.\-/\s]/g, "").length) {
+    const termo = filtro.busca.trim();
+    const somenteDigitos = termo.replace(/\D/g, "");
+    if (somenteDigitos.length >= 8 && somenteDigitos.length === termo.replace(/[.\-/\s]/g, "").length) {
+      // Parece um CNPJ: busca por prefixo do CNPJ
       conds.push("e.cnpj LIKE @cnpjBusca");
       params.cnpjBusca = `${somenteDigitos}%`;
     } else {
-      conds.push("e.razao_social LIKE @busca");
-      params.busca = `%${filtro.busca.trim()}%`;
+      // Nome: os nomes da PGFN vêm sem acento; busca também a variante sem
+      // acentos para "construção" encontrar "CONSTRUCAO"
+      const semAcento = termo.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      conds.push("(e.razao_social LIKE @busca OR e.razao_social LIKE @buscaSemAcento)");
+      params.busca = `%${termo}%`;
+      params.buscaSemAcento = `%${semAcento}%`;
     }
   }
   if (filtro.natureza) {

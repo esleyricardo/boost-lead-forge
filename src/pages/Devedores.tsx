@@ -72,7 +72,7 @@ export default function Devedores() {
   const [detalheCnpj, setDetalheCnpj] = useState<string | null>(null);
   const [exportando, setExportando] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["empresas", filtro],
     queryFn: () => api.get<PaginatedEmpresas>(`/empresas?${filtroParaQuery(filtro)}`),
     placeholderData: keepPreviousData,
@@ -163,7 +163,15 @@ export default function Devedores() {
         <div>
           <h1 className="text-2xl font-bold">Devedores</h1>
           <p className="text-sm text-muted-foreground">
-            {data ? `${data.total.toLocaleString("pt-BR")} empresas encontradas` : "Carregando..."}
+            {isFetching ? (
+              <span className="inline-flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" /> Buscando na base...
+              </span>
+            ) : data ? (
+              `${data.total.toLocaleString("pt-BR")} empresas encontradas`
+            ) : (
+              "Carregando..."
+            )}
           </p>
         </div>
         <div className="flex gap-2">
@@ -222,10 +230,10 @@ export default function Devedores() {
           >
             <div className="min-w-64 flex-1 space-y-1">
               <label className="text-xs font-medium text-muted-foreground">
-                Empresa (nome ou CNPJ)
+                Empresa (nome ou CNPJ) — opcional
               </label>
               <Input
-                placeholder="Digite o nome da empresa ou o CNPJ..."
+                placeholder="Vazio = todas as empresas dos filtros abaixo"
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
               />
@@ -252,9 +260,13 @@ export default function Devedores() {
               />
             </div>
 
-            <Button type="submit">
-              <Search className="mr-2 h-4 w-4" />
-              Pesquisar
+            <Button type="submit" disabled={isFetching}>
+              {isFetching ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="mr-2 h-4 w-4" />
+              )}
+              {isFetching ? "Buscando..." : "Pesquisar"}
             </Button>
             <Button type="button" variant="ghost" onClick={limparFiltros}>
               Limpar
@@ -350,7 +362,7 @@ export default function Devedores() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className={isFetching ? "pointer-events-none opacity-60 transition-opacity" : "transition-opacity"}>
         <Table>
           <TableHeader>
             <TableRow>

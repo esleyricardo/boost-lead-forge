@@ -343,6 +343,13 @@ async function main() {
     assert.equal(listarEmpresas({ busca: "EMPRESA NOVA", page: 1, pageSize: 10 }).total, 1);
   });
 
+  await test("busca por nome ignora acentos e maiúsculas", () => {
+    // Na base os nomes vêm sem acento (ex: "EMPRESA EXEMPLO LTDA")
+    assert.equal(listarEmpresas({ busca: "exémplo", page: 1, pageSize: 10 }).total, 1);
+    assert.equal(listarEmpresas({ busca: "êmpresa nôva", page: 1, pageSize: 10 }).total, 1);
+    assert.equal(listarEmpresas({ busca: "exemplo", page: 1, pageSize: 10 }).total, 1);
+  });
+
   console.log("Autenticação:");
   await test("primeiro usuário vira admin aprovado; segundo fica pendente", () => {
     const u1 = registrar("Admin", "admin@x.com", "123456");

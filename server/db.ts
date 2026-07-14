@@ -97,6 +97,10 @@ CREATE INDEX IF NOT EXISTS idx_empresas_uf ON empresas (uf);
 CREATE INDEX IF NOT EXISTS idx_empresas_valor ON empresas (valor_total);
 CREATE INDEX IF NOT EXISTS idx_empresas_enriched ON empresas (enriched_at);
 CREATE INDEX IF NOT EXISTS idx_empresas_razao ON empresas (razao_social);
+-- Acelera a listagem padrão (só empresas com dívida, ordenada por valor)
+-- em bases grandes (milhões de empresas)
+CREATE INDEX IF NOT EXISTS idx_empresas_ativas_valor
+  ON empresas (valor_total DESC) WHERE qtd_dividas > 0;
 
 CREATE TABLE IF NOT EXISTS configuracoes (
   chave TEXT PRIMARY KEY,
