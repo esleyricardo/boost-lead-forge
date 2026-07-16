@@ -1,4 +1,4 @@
-# PGFN Devedores — inicializador com atualização automática (Windows)
+﻿# PGFN Devedores — inicializador com atualização automática (Windows)
 # Roda 100% oculto (chamado pelo iniciar-oculto.vbs). A cada abertura:
 #   1. verifica no GitHub se há versão nova; se houver, baixa e aplica
 #   2. instala dependências / constrói a interface quando necessário
@@ -43,6 +43,7 @@ if ((Test-Path $LogFile) -and (Get-Item $LogFile).Length -gt 1MB) {
 function Log([string]$msg) {
     $linha = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $msg"
     Add-Content -Path $LogFile -Value $linha -ErrorAction SilentlyContinue
+    Write-Host $linha
 }
 
 function MostrarErro([string]$msg) {
@@ -69,6 +70,10 @@ function Notificar([string]$msg) {
         Start-Sleep -Seconds 1
         $icone.Dispose()
     } catch { }
+}
+
+function UltimasLinhas([string]$arquivo, [int]$n = 15) {
+    if (Test-Path $arquivo) { (Get-Content $arquivo -Tail $n) -join "`n" } else { "(arquivo de log vazio)" }
 }
 
 Log "===== Iniciando ====="
@@ -204,23 +209,38 @@ $paramsServidor = @{
     ArgumentList     = $argsServidor
     WorkingDirectory = $AppDir
     WindowStyle      = "Hidden"
+    PassThru         = $true
 }
-Start-Process @paramsServidor
+$procServidor = Start-Process @paramsServidor
 
 # Aguarda o servidor responder (o próprio servidor abre a janela do app
-# quando estiver pronto). Base grande pode reconstruir índices na primeira
-# vez após uma atualização — damos até 10 minutos.
+# quando estiver pronto). Numa base grande, a primeira abertura após uma
+# atualização pode reconstruir o índice de busca — isso leva VÁRIOS minutos
+# e é normal. Esperamos até 40 minutos, desde que o processo continue vivo.
 $prontoEm = $null
-for ($i = 0; $i -lt 300; $i++) {
+$avisou = $false
+for ($i = 0; $i -lt 1200; $i++) {
     Start-Sleep -Seconds 2
     try {
         $r = Invoke-RestMethod -Uri "http://localhost:$Porta/api/health" -TimeoutSec 2 -UseBasicParsing
         if ($r.ok) { $prontoEm = $i; break }
     } catch { }
+
+    if ($procServidor -and $procServidor.HasExited) {
+        MostrarErro ("O servidor encerrou com erro logo apos iniciar.`n`nUltimas linhas de servidor.log:`n`n" + (UltimasLinhas $ServerLogFile 15))
+        exit 1
+    }
+
+    if (-not $avisou -and $i -eq 60) {
+        # 2 minutos se passaram: tranquiliza o usuário
+        $avisou = $true
+        Notificar "Preparando a base (indice de busca). Pode levar varios minutos; a janela abre sozinha quando terminar."
+        Log "Servidor ainda preparando (provavel construcao de indice); seguimos aguardando..."
+    }
 }
 
 if ($null -eq $prontoEm) {
-    MostrarErro "O sistema demorou demais para iniciar. Verifique o arquivo servidor.log em $DataRoot."
+    MostrarErro ("O sistema nao respondeu em 40 minutos.`n`nUltimas linhas de servidor.log:`n`n" + (UltimasLinhas $ServerLogFile 15))
     exit 1
 }
 
