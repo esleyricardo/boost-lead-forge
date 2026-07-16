@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS dividas (
 );
 CREATE INDEX IF NOT EXISTS idx_dividas_cnpj ON dividas (cnpj);
 CREATE INDEX IF NOT EXISTS idx_dividas_natureza ON dividas (natureza_divida);
-CREATE INDEX IF NOT EXISTS idx_dividas_origem ON dividas (origem);
+-- (idx_dividas_origem é criado após as migrações, quando a coluna origem já
+--  existe também em bancos antigos)
 
 -- Visão consolidada por empresa (CNPJ), recalculada após cada sincronização
 CREATE TABLE IF NOT EXISTS empresas (
@@ -140,12 +141,14 @@ const colunasDividas = db.prepare("PRAGMA table_info(dividas)").all() as { name:
 if (!colunasDividas.some((c) => c.name === "origem")) {
   db.exec("ALTER TABLE dividas ADD COLUMN origem TEXT NOT NULL DEFAULT 'PGFN'");
   db.exec("ALTER TABLE dividas ADD COLUMN esfera TEXT NOT NULL DEFAULT 'federal'");
-  db.exec("CREATE INDEX IF NOT EXISTS idx_dividas_origem ON dividas (origem)");
 }
 const colunasSync = db.prepare("PRAGMA table_info(sincronizacoes)").all() as { name: string }[];
 if (!colunasSync.some((c) => c.name === "fonte")) {
   db.exec("ALTER TABLE sincronizacoes ADD COLUMN fonte TEXT NOT NULL DEFAULT 'PGFN'");
 }
+// Índice em origem: criado agora, depois de garantir a coluna nos dois
+// caminhos (base nova via CREATE TABLE; base antiga via ALTER acima)
+db.exec("CREATE INDEX IF NOT EXISTS idx_dividas_origem ON dividas (origem)");
 
 // Índice de busca textual (FTS5/trigram) para pesquisa por nome quase
 // instantânea em bases com milhões de empresas — inclusive por trechos no
