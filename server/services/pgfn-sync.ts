@@ -276,11 +276,11 @@ const upsertDividaStmt = db.prepare(`
   INSERT INTO dividas (
     numero_inscricao, cnpj, nome_devedor, uf, natureza_divida, receita_principal,
     situacao_inscricao, indicador_ajuizado, data_inscricao, valor_consolidado,
-    data_primeira_deteccao, primeira_sync_id, ultima_sync_id, ativa
+    data_primeira_deteccao, primeira_sync_id, ultima_sync_id, ativa, origem, esfera
   ) VALUES (
     @numeroInscricao, @cnpj, @nomeDevedor, @uf, @naturezaDivida, @receitaPrincipal,
     @situacaoInscricao, @indicadorAjuizado, @dataInscricao, @valorConsolidado,
-    datetime('now'), @syncId, @syncId, 1
+    datetime('now'), @syncId, @syncId, 1, @origem, @esfera
   )
   ON CONFLICT(numero_inscricao) DO UPDATE SET
     nome_devedor = excluded.nome_devedor,
@@ -295,9 +295,14 @@ const upsertDividaStmt = db.prepare(`
     ativa = 1
 `);
 
-export function inserirLote(linhas: LinhaDivida[], syncId: number): void {
+export function inserirLote(
+  linhas: LinhaDivida[],
+  syncId: number,
+  origem = "PGFN",
+  esfera = "federal"
+): void {
   const tx = db.transaction((rows: LinhaDivida[]) => {
-    for (const r of rows) upsertDividaStmt.run({ ...r, syncId });
+    for (const r of rows) upsertDividaStmt.run({ ...r, syncId, origem, esfera });
   });
   tx(linhas);
 }
@@ -309,13 +314,21 @@ export function inserirLote(linhas: LinhaDivida[], syncId: number): void {
  * entraram na base — mantendo o comparativo de trimestres atualizado sem
  * downloads extras.
  */
-export function consolidarEmpresas(syncId: number, trimestreNovas: string | null = null): void {
-  // Dívidas que sumiram da base da PGFN deixam de contar como ativas
-  db.prepare("UPDATE dividas SET ativa = CASE WHEN ultima_sync_id = ? THEN 1 ELSE 0 END").run(syncId);
+export function consolidarEmpresas(
+  syncId: number,
+  trimestreNovas: string | null = null,
+  origem = "PGFN"
+): void {
+  // Dívidas DESTA ORIGEM que sumiram da base deixam de contar como ativas.
+  // O escopo por origem é essencial: uma sincronização estadual não pode
+  // desativar as dívidas federais, e vice-versa.
+  db.prepare(
+    "UPDATE dividas SET ativa = CASE WHEN ultima_sync_id = @syncId THEN 1 ELSE 0 END WHERE origem = @origem"
+  ).run({ syncId, origem });
 
   db.prepare(
     `INSERT INTO empresas (
-       cnpj, razao_social, uf, naturezas, qtd_dividas, valor_total,
+       cnpj, razao_social, uf, naturezas, esferas, qtd_dividas, valor_total,
        data_inscricao_mais_antiga, data_inscricao_mais_recente,
        data_primeira_deteccao, primeira_sync_id, entrou_na_base_em
      )
@@ -324,6 +337,7 @@ export function consolidarEmpresas(syncId: number, trimestreNovas: string | null
        MAX(d.nome_devedor),
        MAX(d.uf),
        (SELECT GROUP_CONCAT(DISTINCT natureza_divida) FROM dividas d2 WHERE d2.cnpj = d.cnpj AND d2.ativa = 1),
+       (SELECT GROUP_CONCAT(DISTINCT esfera) FROM dividas d3 WHERE d3.cnpj = d.cnpj AND d3.ativa = 1),
        COUNT(*),
        SUM(d.valor_consolidado),
        MIN(d.data_inscricao),
@@ -338,6 +352,7 @@ export function consolidarEmpresas(syncId: number, trimestreNovas: string | null
        razao_social = excluded.razao_social,
        uf = excluded.uf,
        naturezas = excluded.naturezas,
+       esferas = excluded.esferas,
        qtd_dividas = excluded.qtd_dividas,
        valor_total = excluded.valor_total,
        data_inscricao_mais_antiga = excluded.data_inscricao_mais_antiga,
@@ -412,7 +427,7 @@ export async function executarSincronizacao(
   syncEmAndamento = true;
 
   const result = db
-    .prepare("INSERT INTO sincronizacoes (status, disparo) VALUES ('running', ?)")
+    .prepare("INSERT INTO sincronizacoes (status, disparo, fonte) VALUES ('running', ?, 'PGFN')")
     .run(disparo);
   const syncId = result.lastInsertRowid as number;
 
@@ -491,7 +506,7 @@ export async function executarSincronizacao(
 
     atualizarProgresso(syncId, "Consolidando dados por empresa...");
     // Na 1ª carga tudo é "novo" — não marca trimestre de entrada (usa o comparativo p/ isso)
-    consolidarEmpresas(syncId, dividasAntes > 0 ? trimestre : null);
+    consolidarEmpresas(syncId, dividasAntes > 0 ? trimestre : null, "PGFN");
 
     const stats = db
       .prepare(
@@ -565,6 +580,7 @@ function mapSync(row: Record<string, unknown>): Sincronizacao {
   return {
     id: row.id as number,
     status: row.status as Sincronizacao["status"],
+    fonte: (row.fonte as string) || "PGFN",
     trimestreReferencia: row.trimestre_referencia as string | null,
     totalDividas: row.total_dividas as number,
     totalEmpresas: row.total_empresas as number,

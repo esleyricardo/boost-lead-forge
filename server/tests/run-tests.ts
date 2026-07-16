@@ -366,6 +366,116 @@ async function main() {
     );
   });
 
+  console.log("Dívidas estaduais:");
+  const { mapearLinhaEstadual, detectarFormatoCsv } = await import("../services/estaduais");
+
+  await test("mapearLinhaEstadual entende variações de colunas dos estados", () => {
+    const l = mapearLinhaEstadual(
+      {
+        "CPF/CNPJ": "12.345.678/0001-95",
+        "NOME DEVEDOR": "EMPRESA EXEMPLO LTDA",
+        "VALOR TOTAL": "1.234,56",
+        "DATA INSCRIÇÃO": "05/03/2021",
+        "NUM CDA": "GO-CDA-777",
+        "TIPO DÍVIDA": "ICMS",
+      },
+      { id: "PGE-GO", uf: "GO" }
+    )!;
+    assert.equal(l.cnpj, "12345678000195");
+    assert.equal(l.valorConsolidado, 1234.56);
+    assert.equal(l.dataInscricao, "2021-03-05");
+    assert.equal(l.numeroInscricao, "PGE-GO:GO-CDA-777");
+    assert.equal(l.naturezaDivida, "Dívida Ativa Estadual (GO)");
+    assert.equal(l.receitaPrincipal, "ICMS");
+
+    // Sem CDA: vira linha agregada por devedor (chave estável fonte:cnpj)
+    const agregada = mapearLinhaEstadual(
+      { CNPJ: "98765432000110", RAZAO_SOCIAL: "OUTRA SA", SALDO_DEVEDOR: "500,00" },
+      { id: "PGE-RS", uf: "RS" }
+    )!;
+    assert.equal(agregada.numeroInscricao, "PGE-RS:98765432000110");
+
+    // Pessoa física (CPF) fica fora nesta etapa
+    assert.equal(
+      mapearLinhaEstadual({ "CPF/CNPJ": "123.456.789-01", NOME: "PESSOA" }, { id: "PGE-GO", uf: "GO" }),
+      null
+    );
+  });
+
+  await test("detectarFormatoCsv identifica separador e codificação", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "csv-fmt-"));
+    const arq = path.join(dir, "t.csv");
+    fs.writeFileSync(arq, Buffer.from("CNPJ;NOME;VALOR\n1;INSCRI\xc7\xc3O;2\n", "latin1"));
+    const fmt = detectarFormatoCsv(arq);
+    assert.equal(fmt.delimiter, ";");
+    assert.equal(fmt.encoding, "latin1");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  await test("sincronização estadual não desativa dívidas federais (escopo por origem)", () => {
+    // Sync estadual A: dívida da empresa federal existente + empresa nova de GO
+    db.prepare("INSERT INTO sincronizacoes (status, disparo, fonte) VALUES ('running','manual','PGE-GO')").run();
+    const syncGo = db.prepare("SELECT MAX(id) AS id FROM sincronizacoes").get() as { id: number };
+    const est1 = mapearLinhaEstadual(
+      {
+        "CPF/CNPJ": "12.345.678/0001-95",
+        NOME: "EMPRESA EXEMPLO LTDA",
+        VALOR: "50.000,00",
+        DT_INSCRICAO: "10/05/2020",
+        CDA: "GO-1",
+      },
+      { id: "PGE-GO", uf: "GO" }
+    )!;
+    const est2 = mapearLinhaEstadual(
+      { CNPJ: "55.666.777/0001-55", NOME: "GOIANA COMERCIO LTDA", VALOR: "80.000,00", CDA: "GO-2" },
+      { id: "PGE-GO", uf: "GO" }
+    )!;
+    inserirLote([est1, est2], syncGo.id, "PGE-GO", "estadual");
+    consolidarEmpresas(syncGo.id, null, "PGE-GO");
+    db.prepare("UPDATE sincronizacoes SET status='completed', concluida_em=datetime('now') WHERE id=?").run(syncGo.id);
+
+    // Dívidas federais continuam ativas
+    const federaisAtivas = (
+      db.prepare("SELECT COUNT(*) AS n FROM dividas WHERE origem='PGFN' AND ativa=1").get() as { n: number }
+    ).n;
+    assert.ok(federaisAtivas >= 3);
+
+    // Empresa com dívida nas duas esferas
+    const emp = db
+      .prepare("SELECT esferas, valor_total, qtd_dividas FROM empresas WHERE cnpj='12345678000195'")
+      .get() as { esferas: string; valor_total: number; qtd_dividas: number };
+    assert.ok(emp.esferas.includes("federal") && emp.esferas.includes("estadual"));
+    assert.equal(emp.qtd_dividas, 2);
+    assert.equal(emp.valor_total, 250000);
+
+    // Empresa só estadual
+    const goiana = db.prepare("SELECT esferas FROM empresas WHERE cnpj='55666777000155'").get() as {
+      esferas: string;
+    };
+    assert.equal(goiana.esferas, "estadual");
+
+    // Filtro por esfera
+    assert.equal(listarEmpresas({ esfera: "estadual", page: 1, pageSize: 10 }).total, 2);
+    assert.ok(listarEmpresas({ esfera: "federal", page: 1, pageSize: 10 }).total >= 3);
+
+    // Sync estadual B: a empresa federal saiu da base de GO
+    db.prepare("INSERT INTO sincronizacoes (status, disparo, fonte) VALUES ('running','manual','PGE-GO')").run();
+    const syncGo2 = db.prepare("SELECT MAX(id) AS id FROM sincronizacoes").get() as { id: number };
+    inserirLote([est2], syncGo2.id, "PGE-GO", "estadual");
+    consolidarEmpresas(syncGo2.id, null, "PGE-GO");
+    db.prepare("UPDATE sincronizacoes SET status='completed', concluida_em=datetime('now') WHERE id=?").run(syncGo2.id);
+
+    const empDepois = db
+      .prepare("SELECT esferas, valor_total FROM empresas WHERE cnpj='12345678000195'")
+      .get() as { esferas: string; valor_total: number };
+    assert.equal(empDepois.esferas, "federal"); // dívida estadual saiu
+    assert.equal(empDepois.valor_total, 200000); // só a federal
+    const federaisDepois = (
+      db.prepare("SELECT COUNT(*) AS n FROM dividas WHERE origem='PGFN' AND ativa=1").get() as { n: number }
+    ).n;
+    assert.equal(federaisDepois, federaisAtivas); // federais intocadas
+  });
+
   console.log("Autenticação:");
   await test("primeiro usuário vira admin aprovado; segundo fica pendente", () => {
     const u1 = registrar("Admin", "admin@x.com", "123456");

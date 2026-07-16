@@ -407,6 +407,27 @@ export default function Devedores() {
             </Select>
 
             <Select
+              value={filtro.esfera || TODAS}
+              onValueChange={(v) =>
+                atualizarFiltro({
+                  esfera: v === TODAS ? undefined : (v as "federal" | "estadual"),
+                })
+              }
+            >
+              <SelectTrigger
+                className="w-44"
+                title="Esfera da dívida: federal (PGFN) ou estadual (procuradorias estaduais)"
+              >
+                <SelectValue placeholder="Esfera" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={TODAS}>Todas as esferas</SelectItem>
+                <SelectItem value="federal">Federal (União)</SelectItem>
+                <SelectItem value="estadual">Estadual</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select
               value={filtro.inscricaoDe || TODAS}
               onValueChange={(v) =>
                 atualizarFiltro({ inscricaoDe: v === TODAS ? undefined : v })

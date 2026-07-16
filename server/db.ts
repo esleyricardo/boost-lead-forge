@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS sincronizacoes (
   progresso TEXT,
   error_message TEXT,
   disparo TEXT NOT NULL DEFAULT 'manual' CHECK (disparo IN ('manual','automatica')),
+  -- Origem dos dados: 'PGFN' (federal) ou o id de uma fonte estadual (ex: 'PGE-GO')
+  fonte TEXT NOT NULL DEFAULT 'PGFN',
   iniciada_em TEXT NOT NULL DEFAULT (datetime('now')),
   concluida_em TEXT
 );
@@ -63,10 +65,14 @@ CREATE TABLE IF NOT EXISTS dividas (
   data_primeira_deteccao TEXT NOT NULL DEFAULT (datetime('now')),
   primeira_sync_id INTEGER NOT NULL,
   ultima_sync_id INTEGER NOT NULL,
-  ativa INTEGER NOT NULL DEFAULT 1
+  ativa INTEGER NOT NULL DEFAULT 1,
+  -- Origem/esfera do crédito: federal (PGFN) ou estadual (PGE-GO, PGE-RS, ...)
+  origem TEXT NOT NULL DEFAULT 'PGFN',
+  esfera TEXT NOT NULL DEFAULT 'federal'
 );
 CREATE INDEX IF NOT EXISTS idx_dividas_cnpj ON dividas (cnpj);
 CREATE INDEX IF NOT EXISTS idx_dividas_natureza ON dividas (natureza_divida);
+CREATE INDEX IF NOT EXISTS idx_dividas_origem ON dividas (origem);
 
 -- Visão consolidada por empresa (CNPJ), recalculada após cada sincronização
 CREATE TABLE IF NOT EXISTS empresas (
@@ -82,6 +88,8 @@ CREATE TABLE IF NOT EXISTS empresas (
   primeira_sync_id INTEGER NOT NULL,
   -- Trimestre PGFN em que a empresa entrou na base (comparativo de trimestres)
   entrou_na_base_em TEXT,
+  -- Esferas das dívidas ativas da empresa ("federal", "estadual" ou ambas)
+  esferas TEXT NOT NULL DEFAULT '',
   -- Enriquecimento via OpenCNPJ
   telefones TEXT,
   email TEXT,
@@ -118,10 +126,25 @@ CREATE TABLE IF NOT EXISTS cnpjs_trimestre_ref (
 ) WITHOUT ROWID;
 `);
 
-// Migração: bancos criados antes do comparativo de trimestres não têm a coluna
+// Migrações: bancos criados por versões anteriores não têm estas colunas
 const colunasEmpresas = db.prepare("PRAGMA table_info(empresas)").all() as { name: string }[];
 if (!colunasEmpresas.some((c) => c.name === "entrou_na_base_em")) {
   db.exec("ALTER TABLE empresas ADD COLUMN entrou_na_base_em TEXT");
+}
+if (!colunasEmpresas.some((c) => c.name === "esferas")) {
+  db.exec("ALTER TABLE empresas ADD COLUMN esferas TEXT NOT NULL DEFAULT ''");
+  // Base pré-existente veio inteira da PGFN
+  db.exec("UPDATE empresas SET esferas = 'federal' WHERE qtd_dividas > 0");
+}
+const colunasDividas = db.prepare("PRAGMA table_info(dividas)").all() as { name: string }[];
+if (!colunasDividas.some((c) => c.name === "origem")) {
+  db.exec("ALTER TABLE dividas ADD COLUMN origem TEXT NOT NULL DEFAULT 'PGFN'");
+  db.exec("ALTER TABLE dividas ADD COLUMN esfera TEXT NOT NULL DEFAULT 'federal'");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_dividas_origem ON dividas (origem)");
+}
+const colunasSync = db.prepare("PRAGMA table_info(sincronizacoes)").all() as { name: string }[];
+if (!colunasSync.some((c) => c.name === "fonte")) {
+  db.exec("ALTER TABLE sincronizacoes ADD COLUMN fonte TEXT NOT NULL DEFAULT 'PGFN'");
 }
 
 // Índice de busca textual (FTS5/trigram) para pesquisa por nome quase

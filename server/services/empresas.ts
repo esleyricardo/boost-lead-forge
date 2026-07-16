@@ -95,6 +95,11 @@ function montarWhere(
     conds.push("e.data_inscricao_mais_recente <= @inscricaoAte");
     params.inscricaoAte = filtro.inscricaoAte;
   }
+  if (filtro.esfera) {
+    // esferas guarda valores distintos separados por vírgula ("federal,estadual")
+    conds.push("e.esferas LIKE @esfera");
+    params.esfera = `%${filtro.esfera}%`;
+  }
   if (filtro.enriquecidas === "sim") conds.push("e.enriched_at IS NOT NULL");
   if (filtro.enriquecidas === "nao") conds.push("e.enriched_at IS NULL");
 
@@ -124,6 +129,7 @@ function mapEmpresa(row: Record<string, unknown>): Empresa {
     razaoSocial: row.razao_social as string,
     uf: row.uf as string | null,
     naturezas: ((row.naturezas as string) || "").split(",").join(", "),
+    esferas: ((row.esferas as string) || "").split(",").join(", "),
     qtdDividas: row.qtd_dividas as number,
     valorTotal: row.valor_total as number,
     dataInscricaoMaisAntiga: row.data_inscricao_mais_antiga as string | null,

@@ -43,6 +43,8 @@ export interface Empresa {
   razaoSocial: string;
   uf: string | null;
   naturezas: string; // naturezas distintas separadas por ", "
+  /** Esferas das dívidas ativas ("federal", "estadual"), separadas por ", " */
+  esferas: string;
   qtdDividas: number;
   valorTotal: number;
   /** Data oficial (PGFN) da inscrição mais antiga em dívida ativa */
@@ -106,6 +108,8 @@ export interface EmpresasFiltro {
   inscricaoDe?: string;
   /** Dívida mais recente inscrita até esta data (AAAA-MM-DD) */
   inscricaoAte?: string;
+  /** Esfera da dívida: federal (PGFN) ou estadual (PGEs) */
+  esfera?: "federal" | "estadual";
   enriquecidas?: "sim" | "nao";
   page?: number;
   pageSize?: number;
@@ -133,6 +137,8 @@ export type SyncStatus = "running" | "completed" | "error";
 export interface Sincronizacao {
   id: number;
   status: SyncStatus;
+  /** Origem dos dados: "PGFN" (federal) ou o id de uma fonte estadual (ex: "PGE-GO") */
+  fonte: string;
   trimestreReferencia: string | null;
   totalDividas: number;
   totalEmpresas: number;
@@ -150,6 +156,18 @@ export interface SyncConfig {
   cronHorario: string; // ex: "06:00"
   ultimaSincronizacao: string | null;
   proximaExecucao: string | null;
+  executando: boolean;
+}
+
+// ---------- Fontes estaduais ----------
+
+export interface FonteEstadualStatus {
+  id: string; // ex: "PGE-GO"
+  nome: string; // ex: "Goiás — Dívida Ativa Estadual"
+  uf: string;
+  /** Cadência típica de publicação da fonte (informativo) */
+  atualizacao: string;
+  ultimaSincronizacao: string | null;
   executando: boolean;
 }
 

@@ -31,6 +31,13 @@ async function executarAutomatica(): Promise<void> {
   } catch (err) {
     console.error("[Cron] Erro na sincronização automática:", err instanceof Error ? err.message : err);
   }
+  // Fontes estaduais: verificação leve; só baixa quem publicou arquivo novo
+  try {
+    const { verificarFontesEstaduais } = await import("./estaduais");
+    await verificarFontesEstaduais();
+  } catch (err) {
+    console.error("[Cron] Erro na verificação estadual:", err instanceof Error ? err.message : err);
+  }
 }
 
 export function reagendarCron(): void {

@@ -29,6 +29,11 @@ import {
 } from "./services/pgfn-sync";
 import { atualizarConfigCron, proximaExecucao } from "./services/cron";
 import { executarComparativo, getComparativoStatus, isComparando } from "./services/comparativo";
+import {
+  executarSincronizacaoFonte,
+  isSincronizandoEstadual,
+  listarFontesStatus,
+} from "./services/estaduais";
 import { getEnriquecimentoStatus, iniciarEnriquecimento } from "./services/enrichment";
 import { gerarExcel } from "./services/excel";
 import type { DashboardMetrics, EmpresasFiltro, SyncConfig } from "../shared/types";
@@ -156,6 +161,10 @@ function parseFiltro(query: Record<string, unknown>): EmpresasFiltro {
     trimestreEntrada: query.trimestreEntrada ? String(query.trimestreEntrada) : undefined,
     inscricaoDe: query.inscricaoDe ? String(query.inscricaoDe) : undefined,
     inscricaoAte: query.inscricaoAte ? String(query.inscricaoAte) : undefined,
+    esfera:
+      query.esfera === "federal" || query.esfera === "estadual"
+        ? (query.esfera as "federal" | "estadual")
+        : undefined,
     enriquecidas:
       query.enriquecidas === "sim" || query.enriquecidas === "nao"
         ? (query.enriquecidas as "sim" | "nao")
@@ -277,6 +286,9 @@ api.post(
   requireAuth,
   handle((req, res) => {
     if (isSincronizando()) throw new HttpError(409, "Já existe uma sincronização em andamento.");
+    if (isSincronizandoEstadual()) {
+      throw new HttpError(409, "Há uma sincronização estadual em andamento. Aguarde a conclusão.");
+    }
     if (isComparando()) {
       throw new HttpError(409, "Há um comparativo de trimestres em andamento. Aguarde a conclusão.");
     }
@@ -308,6 +320,34 @@ api.post(
     }
     resetarDadosPGFN();
     res.json({ ok: true });
+  })
+);
+
+// ---------- Fontes estaduais ----------
+
+api.get(
+  "/fontes",
+  requireAuth,
+  handle((_req, res) => {
+    res.json({ fontes: listarFontesStatus() });
+  })
+);
+
+api.post(
+  "/fontes/:id/sincronizar",
+  requireAuth,
+  handle((req, res) => {
+    if (isSincronizando()) throw new HttpError(409, "Aguarde a sincronização federal terminar.");
+    if (isSincronizandoEstadual()) {
+      throw new HttpError(409, "Já existe uma sincronização estadual em andamento.");
+    }
+    const forcar = (req.body || {}).forcar === true;
+    const fonteId = String(req.params.id);
+    // Dispara em segundo plano; o acompanhamento é feito pelo histórico
+    executarSincronizacaoFonte(fonteId, "manual", forcar).catch((err) =>
+      console.error(`[Sync ${fonteId}] Erro:`, err instanceof Error ? err.message : err)
+    );
+    res.status(202).json({ ok: true });
   })
 );
 

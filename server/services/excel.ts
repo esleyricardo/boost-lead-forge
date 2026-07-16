@@ -50,6 +50,7 @@ export async function gerarExcel(empresas: Empresa[]): Promise<Buffer> {
     { header: "UF", key: "uf", width: 6 },
     { header: "Município", key: "municipio", width: 22 },
     { header: "Natureza(s) da Dívida", key: "naturezas", width: 35 },
+    { header: "Esfera(s)", key: "esferas", width: 16 },
     { header: "Qtd. Dívidas", key: "qtdDividas", width: 12 },
     { header: "Valor Total (R$)", key: "valorTotal", width: 18 },
     { header: "Data Inscrição Mais Antiga", key: "dataAntiga", width: 22 },
@@ -66,7 +67,7 @@ export async function gerarExcel(empresas: Empresa[]): Promise<Buffer> {
   ];
 
   sheet.getColumn("valorTotal").numFmt = "#,##0.00";
-  sheet.autoFilter = { from: "A1", to: "R1" };
+  sheet.autoFilter = { from: "A1", to: "S1" };
 
   const cab = sheet.getRow(1);
   cab.font = { bold: true, color: { argb: "FFFFFFFF" } };
@@ -81,6 +82,7 @@ export async function gerarExcel(empresas: Empresa[]): Promise<Buffer> {
         uf: e.uf || "",
         municipio: e.municipio || "",
         naturezas: e.naturezas,
+        esferas: e.esferas,
         qtdDividas: e.qtdDividas,
         valorTotal: e.valorTotal,
         dataAntiga: e.dataInscricaoMaisAntiga || "",

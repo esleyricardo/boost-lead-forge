@@ -5,13 +5,19 @@ import {
   CalendarClock,
   CheckCircle2,
   GitCompareArrows,
+  Landmark,
   Loader2,
   PlayCircle,
   RefreshCw,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { ComparativoStatus, Sincronizacao as Sync, SyncConfig } from "@shared/types";
+import type {
+  ComparativoStatus,
+  FonteEstadualStatus,
+  Sincronizacao as Sync,
+  SyncConfig,
+} from "@shared/types";
 import { api, formatarDataHora } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -118,6 +124,23 @@ export default function Sincronizacao() {
     },
     onError: (err) =>
       toast.error(err instanceof Error ? err.message : "Falha ao iniciar sincronização."),
+  });
+
+  const { data: fontes } = useQuery({
+    queryKey: ["fontes-estaduais"],
+    queryFn: () => api.get<{ fontes: FonteEstadualStatus[] }>("/fontes").then((r) => r.fontes),
+    refetchInterval: (q) => (q.state.data?.some((f) => f.executando) ? 3000 : 15_000),
+  });
+
+  const sincronizarFonte = useMutation({
+    mutationFn: (id: string) => api.post(`/fontes/${id}/sincronizar`, {}),
+    onSuccess: () => {
+      toast.success("Sincronização estadual iniciada. Acompanhe no histórico abaixo.");
+      queryClient.invalidateQueries({ queryKey: ["fontes-estaduais"] });
+      queryClient.invalidateQueries({ queryKey: ["sync-historico"] });
+    },
+    onError: (err) =>
+      toast.error(err instanceof Error ? err.message : "Falha ao iniciar sincronização estadual."),
   });
 
   const salvarConfig = useMutation({
@@ -272,6 +295,53 @@ export default function Sincronizacao() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
+            <Landmark className="h-4 w-4" /> Dívidas estaduais (PGEs)
+          </CardTitle>
+          <CardDescription>
+            Cada estado publica sua própria base de dívida ativa (tipicamente uma vez por mês).
+            O sistema verifica todo dia, junto com a sincronização automática, se o estado
+            publicou arquivo novo — e só baixa quando há novidade. A primeira carga de cada
+            estado precisa ser iniciada manualmente aqui.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {fontes?.map((f) => (
+            <div
+              key={f.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"
+            >
+              <div>
+                <p className="text-sm font-medium">{f.nome}</p>
+                <p className="text-xs text-muted-foreground">
+                  Publicação {f.atualizacao} · Última sincronização:{" "}
+                  {f.ultimaSincronizacao ? formatarDataHora(f.ultimaSincronizacao) : "nunca"}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant={f.ultimaSincronizacao ? "outline" : "default"}
+                disabled={f.executando || fontes.some((x) => x.executando) || emAndamento}
+                onClick={() => sincronizarFonte.mutate(f.id)}
+              >
+                {f.executando ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sincronizando...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    {f.ultimaSincronizacao ? "Verificar e sincronizar" : "Carregar pela primeira vez"}
+                  </>
+                )}
+              </Button>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
             <GitCompareArrows className="h-4 w-4" /> Comparativo de trimestres
           </CardTitle>
           <CardDescription>
@@ -338,6 +408,7 @@ export default function Sincronizacao() {
           <TableHeader>
             <TableRow>
               <TableHead>Status</TableHead>
+              <TableHead>Fonte</TableHead>
               <TableHead>Disparo</TableHead>
               <TableHead>Trimestre</TableHead>
               <TableHead className="text-right">Empresas</TableHead>
@@ -350,7 +421,7 @@ export default function Sincronizacao() {
           <TableBody>
             {historico?.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
                   Nenhuma sincronização executada ainda.
                 </TableCell>
               </TableRow>
@@ -362,6 +433,9 @@ export default function Sincronizacao() {
                   {s.status === "error" && s.errorMessage && (
                     <p className="mt-1 max-w-64 text-xs text-destructive">{s.errorMessage}</p>
                   )}
+                </TableCell>
+                <TableCell className="text-sm">
+                  {s.fonte === "PGFN" ? "PGFN (federal)" : s.fonte}
                 </TableCell>
                 <TableCell className="text-sm capitalize">{s.disparo}</TableCell>
                 <TableCell className="text-sm">{s.trimestreReferencia || "—"}</TableCell>
