@@ -350,6 +350,13 @@ async function main() {
     assert.equal(listarEmpresas({ busca: "exemplo", page: 1, pageSize: 10 }).total, 1);
   });
 
+  await test("contagem tem teto: total exato para poucos, aproximado para muitos", () => {
+    // A base de teste tem poucas empresas → total exato, sem aproximação
+    const r = listarEmpresas({ page: 1, pageSize: 10 });
+    assert.equal(r.totalAproximado === true, false);
+    assert.ok(r.total < 10000);
+  });
+
   await test("filtro por recência da dívida (inscricaoDe) mantém só as recentes", () => {
     // Empresas ativas têm dívida mais recente em 2019 (EXEMPLO, RECEM CHEGADA)
     // e 2026-06-02 (EMPRESA NOVA)
@@ -508,6 +515,36 @@ async function main() {
     assert.throws(() => login("user@x.com", "senha-temporaria"), /aguarda liberação/);
     db.prepare("UPDATE usuarios SET status = 'aprovado' WHERE id = ?").run(user.id);
     assert.ok(login("user@x.com", "senha-temporaria").token);
+  });
+
+  console.log("Enriquecimento (sócios com CPF mascarado):");
+  await test("enriquecimento captura o CPF mascarado do sócio quando a API traz", async () => {
+    const { enriquecerEmpresa } = await import("../services/enrichment");
+    const fakeResp = {
+      cnpj: "12345678000195",
+      razao_social: "EMPRESA EXEMPLO LTDA",
+      situacao_cadastral: "Ativa",
+      telefones: [],
+      QSA: [
+        { nome_socio: "JOAO DA SILVA", qualificacao_socio: "Socio-Admin", identificador_socio: "PF", faixa_etaria: "41 a 50", cpf_cnpj_socio: "***123456**" },
+      ],
+      cnaes: [],
+    };
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(fakeResp), { status: 200 })) as typeof fetch;
+    try {
+      const admin = login("admin@x.com", "nova-senha").usuario;
+      const ok = await enriquecerEmpresa("12345678000195", admin.id);
+      assert.equal(ok, true);
+      const socios = JSON.parse(
+        (db.prepare("SELECT socios FROM empresas WHERE cnpj=?").get("12345678000195") as { socios: string }).socios
+      );
+      assert.equal(socios[0].documento, "***123456**");
+      assert.equal(socios[0].nome, "JOAO DA SILVA");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   console.log("Excel:");

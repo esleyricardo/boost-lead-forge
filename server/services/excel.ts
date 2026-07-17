@@ -20,7 +20,9 @@ function sociosParaTexto(sociosJson: string | null): string {
   if (!sociosJson) return "";
   try {
     const socios = JSON.parse(sociosJson) as Socio[];
-    return socios.map((s) => `${s.nome} (${s.qualificacao})`).join("; ");
+    return socios
+      .map((s) => `${s.nome}${s.documento ? ` [CPF ${s.documento}]` : ""} (${s.qualificacao})`)
+      .join("; ");
   } catch {
     return "";
   }

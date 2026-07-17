@@ -16,6 +16,9 @@ interface WhereBuild {
   params: Record<string, unknown>;
 }
 
+// Teto da contagem: acima disso a interface mostra "N+" em vez de varrer tudo
+const CAP_CONTAGEM = 10000;
+
 /**
  * Monta a consulta MATCH do FTS trigram: cada palavra vira uma frase que casa
  * com QUALQUER trecho do nome ("adari" encontra "PADARIA"). O trigram exige
@@ -161,9 +164,18 @@ function consultarPagina(
   const orderCol = ORDER_COLS[filtro.orderBy || "valorTotal"] || "e.valor_total";
   const orderDir = filtro.orderDir === "asc" ? "ASC" : "DESC";
 
-  const total = (
-    db.prepare(`SELECT COUNT(*) AS n FROM empresas e WHERE ${where}`).get(params) as { n: number }
+  // Contar TODAS as linhas de um filtro (ex.: uma natureza) varre milhões de
+  // registros e é o que deixava a pesquisa lenta. Contamos só até um teto: se
+  // passar dele, a interface mostra "10.000+" — o que é suficiente, já que
+  // ninguém pagina até a página 400. Filtros que retornam pouco continuam
+  // exibindo o total exato.
+  const bruto = (
+    db
+      .prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 FROM empresas e WHERE ${where} LIMIT ${CAP_CONTAGEM + 1})`)
+      .get(params) as { n: number }
   ).n;
+  const totalAproximado = bruto > CAP_CONTAGEM;
+  const total = totalAproximado ? CAP_CONTAGEM : bruto;
 
   const rows = db
     .prepare(
@@ -178,7 +190,7 @@ function consultarPagina(
       offset: (page - 1) * pageSize,
     }) as Record<string, unknown>[];
 
-  return { items: rows.map(mapEmpresa), total, page, pageSize };
+  return { items: rows.map(mapEmpresa), total, page, pageSize, totalAproximado };
 }
 
 export function listarEmpresas(filtro: EmpresasFiltro): PaginatedEmpresas {

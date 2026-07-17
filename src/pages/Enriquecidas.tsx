@@ -220,6 +220,7 @@ export default function Enriquecidas() {
               <div className="flex items-center gap-3">
                 <p className="text-sm text-muted-foreground">
                   Página {data?.page || 1} de {totalPaginas.toLocaleString("pt-BR")}
+                  {data?.totalAproximado ? "+" : ""}
                 </p>
                 <Select
                   value={String(filtro.pageSize || 25)}

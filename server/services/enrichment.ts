@@ -24,6 +24,11 @@ interface CnpjData {
     qualificacao_socio: string;
     identificador_socio: string;
     faixa_etaria: string;
+    // A Receita publica o CPF do sócio MASCARADO (ex.: "***123456**").
+    // O nome do campo varia entre fontes; capturamos qualquer um deles.
+    cpf_cnpj_socio?: string;
+    cpf_socio?: string;
+    cnpj_cpf_do_socio?: string;
   }>;
   cnaes: Array<{ codigo: string; descricao: string; is_principal: boolean }>;
   // Alguns retornos usam cnae_principal em vez da lista
@@ -79,6 +84,8 @@ function formatarSocios(qsa: CnpjData["QSA"]): string | null {
       qualificacao: s.qualificacao_socio,
       tipo: s.identificador_socio,
       faixaEtaria: s.faixa_etaria,
+      // CPF mascarado da Receita (só os 6 dígitos do meio ficam visíveis)
+      documento: (s.cpf_cnpj_socio || s.cpf_socio || s.cnpj_cpf_do_socio || "").trim() || undefined,
     }))
   );
 }

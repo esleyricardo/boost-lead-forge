@@ -118,6 +118,7 @@ export default function EmpresaDetalheDialog({
                           <span className="text-muted-foreground">
                             — {s.qualificacao}
                             {s.faixaEtaria ? ` · ${s.faixaEtaria}` : ""}
+                            {s.documento ? ` · CPF ${s.documento}` : ""}
                           </span>
                         </li>
                       ))}

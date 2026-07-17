@@ -113,6 +113,9 @@ CREATE INDEX IF NOT EXISTS idx_empresas_ativas_valor
 -- Acelera o filtro de recência (dívida inscrita a partir de...)
 CREATE INDEX IF NOT EXISTS idx_empresas_inscricao_recente
   ON empresas (data_inscricao_mais_recente) WHERE qtd_dividas > 0;
+-- Acelera o filtro por estado já na ordem de valor (evita reordenar)
+CREATE INDEX IF NOT EXISTS idx_empresas_uf_valor
+  ON empresas (uf, valor_total DESC) WHERE qtd_dividas > 0;
 
 CREATE TABLE IF NOT EXISTS configuracoes (
   chave TEXT PRIMARY KEY,

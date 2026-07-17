@@ -93,6 +93,8 @@ export interface Socio {
   qualificacao: string;
   tipo: string;
   faixaEtaria: string;
+  /** CPF do sócio mascarado pela Receita (ex.: "***123456**"); pode não vir */
+  documento?: string;
 }
 
 export interface EmpresasFiltro {
@@ -128,6 +130,8 @@ export interface PaginatedEmpresas {
   total: number;
   page: number;
   pageSize: number;
+  /** true quando o total real é maior que o teto de contagem (mostrar "N+") */
+  totalAproximado?: boolean;
 }
 
 // ---------- Sincronização ----------
