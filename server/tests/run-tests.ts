@@ -547,6 +547,33 @@ async function main() {
     }
   });
 
+  console.log("Formatos de exportação e telefones:");
+  const { telefonesComDDI } = await import("../../shared/format");
+  const { gerarCsv, gerarPdf } = await import("../services/export-formats");
+
+  await test("telefonesComDDI adiciona +55 (idempotente)", () => {
+    assert.equal(telefonesComDDI("(11) 33334444, (11) 98888-7777"), "+55 (11) 33334444, +55 (11) 98888-7777");
+    assert.equal(telefonesComDDI("+55 (11) 3333-4444"), "+55 (11) 3333-4444"); // não duplica
+    assert.equal(telefonesComDDI(""), "");
+    assert.equal(telefonesComDDI(null), "");
+  });
+
+  await test("gerarCsv produz CSV com cabeçalho, telefone com DDI e separador ;", () => {
+    const empresas = listarEmpresas({ page: 1, pageSize: 10 }).items;
+    const csv = gerarCsv(empresas).toString("utf8");
+    assert.ok(csv.includes("CNPJ;"));
+    assert.ok(csv.includes("Telefones"));
+    // BOM UTF-8 no início
+    assert.equal(gerarCsv(empresas)[0], 0xef);
+  });
+
+  await test("gerarPdf produz um PDF válido", async () => {
+    const empresas = listarEmpresas({ page: 1, pageSize: 10 }).items;
+    const pdf = await gerarPdf(empresas);
+    assert.equal(pdf.subarray(0, 5).toString(), "%PDF-");
+    assert.ok(pdf.length > 500);
+  });
+
   console.log("Excel:");
   await test("gerarExcel produz arquivo xlsx válido", async () => {
     const r = listarEmpresas({ page: 1, pageSize: 10 });

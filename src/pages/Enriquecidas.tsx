@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Download, Loader2, Search, Sparkles } from "
 import { toast } from "sonner";
 import type { EmpresasFiltro, PaginatedEmpresas } from "@shared/types";
 import { UFS } from "@shared/types";
+import { telefonesComDDI } from "@shared/format";
 import {
   api,
   downloadArquivo,
@@ -15,6 +16,12 @@ import EmpresaDetalheDialog from "@/components/EmpresaDetalheDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -71,11 +78,15 @@ export default function Enriquecidas() {
     atualizarFiltro({ busca: buscaTexto.trim() || undefined });
   }
 
-  async function exportar() {
+  async function exportar(formato: "excel" | "csv" | "pdf") {
     setExportando(true);
     try {
-      await downloadArquivo("/export/excel", { filtro });
-      toast.success("Excel das empresas enriquecidas gerado (com os filtros atuais).");
+      await downloadArquivo(`/export/${formato}`, { filtro });
+      toast.success(
+        formato === "pdf"
+          ? "PDF gerado (filtro atual). PDF é limitado às primeiras 3.000 empresas."
+          : `${formato.toUpperCase()} gerado (filtro atual).`
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao exportar.");
     } finally {
@@ -100,14 +111,23 @@ export default function Enriquecidas() {
             )}
           </p>
         </div>
-        <Button variant="outline" onClick={exportar} disabled={exportando || !data?.total}>
-          {exportando ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Download className="mr-2 h-4 w-4" />
-          )}
-          Exportar Excel (filtro atual)
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" disabled={exportando || !data?.total}>
+              {exportando ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Exportar (filtro atual)
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => exportar("excel")}>Excel (.xlsx)</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => exportar("csv")}>CSV (.csv)</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => exportar("pdf")}>PDF (.pdf)</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <Card>
@@ -193,7 +213,11 @@ export default function Enriquecidas() {
                       </p>
                     </TableCell>
                     <TableCell className="text-sm">
-                      {e.telefones || <span className="text-muted-foreground">—</span>}
+                      {e.telefones ? (
+                        telefonesComDDI(e.telefones)
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="max-w-52 truncate text-sm">
                       {e.email || <span className="text-muted-foreground">—</span>}

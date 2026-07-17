@@ -3,6 +3,7 @@
  */
 import ExcelJS from "exceljs";
 import type { Empresa, Socio } from "../../shared/types";
+import { telefonesComDDI } from "../../shared/format";
 
 export function formatarCnpj(cnpj: string): string {
   if (cnpj.length !== 14) return cnpj;
@@ -91,7 +92,7 @@ export async function gerarExcel(empresas: Empresa[]): Promise<Buffer> {
         dataRecente: e.dataInscricaoMaisRecente || "",
         dataDeteccao: e.dataPrimeiraDeteccao?.slice(0, 10) || "",
         entrouNaBase: formatarTrimestre(e.entrouNaBaseEm),
-        telefones: e.telefones || "",
+        telefones: telefonesComDDI(e.telefones),
         email: e.email || "",
         socios: sociosParaTexto(e.socios),
         cnae: e.cnaeDescricao || "",

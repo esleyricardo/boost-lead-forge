@@ -39,6 +39,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -210,17 +216,19 @@ export default function Devedores() {
     }
   }
 
-  async function exportarExcel() {
+  async function exportar(formato: "excel" | "csv" | "pdf") {
     setExportando(true);
     try {
-      await downloadArquivo("/export/excel", {
+      await downloadArquivo(`/export/${formato}`, {
         filtro,
         cnpjs: selecionados.size > 0 ? [...selecionados] : undefined,
       });
+      const alvo =
+        selecionados.size > 0 ? `${selecionados.size} empresa(s) selecionada(s)` : "filtro atual";
       toast.success(
-        selecionados.size > 0
-          ? `Excel gerado com as ${selecionados.size} empresas selecionadas.`
-          : "Excel gerado com o filtro atual."
+        formato === "pdf"
+          ? `PDF gerado (${alvo}). PDF é limitado às primeiras 3.000 empresas.`
+          : `${formato.toUpperCase()} gerado (${alvo}).`
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao exportar.");
@@ -280,14 +288,23 @@ export default function Devedores() {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-          <Button variant="outline" onClick={exportarExcel} disabled={exportando}>
-            {exportando ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="mr-2 h-4 w-4" />
-            )}
-            Exportar Excel
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" disabled={exportando}>
+                {exportando ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                Exportar
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => exportar("excel")}>Excel (.xlsx)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportar("csv")}>CSV (.csv)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportar("pdf")}>PDF (.pdf)</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 

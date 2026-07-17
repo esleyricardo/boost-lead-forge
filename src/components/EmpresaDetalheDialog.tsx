@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import type { Divida, Empresa, Socio } from "@shared/types";
+import { telefonesComDDI } from "@shared/format";
 import { api, formatarCnpj, formatarData, formatarDataHora, formatarMoeda } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -102,7 +103,7 @@ export default function EmpresaDetalheDialog({
                   )}
                 </div>
                 <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-                  <Campo rotulo="Telefones" valor={empresa.telefones || ""} />
+                  <Campo rotulo="Telefones" valor={telefonesComDDI(empresa.telefones)} />
                   <Campo rotulo="Email" valor={empresa.email || ""} />
                   <Campo rotulo="Situação cadastral" valor={empresa.situacaoCadastral || ""} />
                   <Campo rotulo="CNAE principal" valor={empresa.cnaeDescricao || ""} />

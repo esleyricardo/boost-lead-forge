@@ -36,6 +36,7 @@ import {
 } from "./services/estaduais";
 import { getEnriquecimentoStatus, iniciarEnriquecimento } from "./services/enrichment";
 import { gerarExcel } from "./services/excel";
+import { gerarCsv, gerarPdf, PDF_MAX_LINHAS } from "./services/export-formats";
 import type { DashboardMetrics, EmpresasFiltro, SyncConfig } from "../shared/types";
 
 export const api = Router();
@@ -380,19 +381,46 @@ api.get(
 // ---------- Exportação ----------
 
 api.post(
-  "/export/excel",
+  "/export/:formato",
   requireAuth,
   handle(async (req, res) => {
+    const formato = String(req.params.formato).toLowerCase();
+    if (!["excel", "csv", "pdf"].includes(formato)) {
+      throw new HttpError(400, "Formato inválido. Use excel, csv ou pdf.");
+    }
     const { filtro, cnpjs } = req.body || {};
-    const empresas = listarParaExportacao(
+    let empresas = listarParaExportacao(
       parseFiltro(filtro || {}),
       Array.isArray(cnpjs) && cnpjs.length > 0 ? cnpjs.map(String) : undefined
     );
+
+    const dataStr = new Date().toISOString().slice(0, 10);
+    const base = `devedores-pgfn-${dataStr}`;
+
+    if (formato === "csv") {
+      res
+        .setHeader("Content-Type", "text/csv; charset=utf-8")
+        .setHeader("Content-Disposition", `attachment; filename="${base}.csv"`)
+        .send(gerarCsv(empresas));
+      return;
+    }
+    if (formato === "pdf") {
+      // PDF de milhares de páginas é inútil; limita e sinaliza no nome do arquivo
+      const limitado = empresas.length > PDF_MAX_LINHAS;
+      if (limitado) empresas = empresas.slice(0, PDF_MAX_LINHAS);
+      const buffer = await gerarPdf(empresas);
+      const nome = limitado ? `${base}-primeiras-${PDF_MAX_LINHAS}.pdf` : `${base}.pdf`;
+      res
+        .setHeader("Content-Type", "application/pdf")
+        .setHeader("Content-Disposition", `attachment; filename="${nome}"`)
+        .send(buffer);
+      return;
+    }
+    // excel
     const buffer = await gerarExcel(empresas);
-    const nome = `devedores-pgfn-${new Date().toISOString().slice(0, 10)}.xlsx`;
     res
       .setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-      .setHeader("Content-Disposition", `attachment; filename="${nome}"`)
+      .setHeader("Content-Disposition", `attachment; filename="${base}.xlsx"`)
       .send(buffer);
   })
 );
