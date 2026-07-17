@@ -17,6 +17,14 @@ console.log(`[DB] Banco de dados em ${DB_PATH}`);
 export const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("synchronous = NORMAL");
+// Desempenho no desktop: usa a memória da máquina para acelerar a busca.
+// mmap mapeia o arquivo do banco direto na RAM (leituras em velocidade de
+// memória, sem ir ao disco toda hora); cache maior guarda mais páginas; os
+// índices/ordenações temporários vão para a memória em vez do disco.
+db.pragma("mmap_size = 2147483648"); // 2 GB memory-mapped
+db.pragma("cache_size = -262144"); // 256 MB de cache de páginas
+db.pragma("temp_store = MEMORY");
+db.pragma("busy_timeout = 5000");
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS usuarios (

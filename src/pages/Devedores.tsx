@@ -132,6 +132,18 @@ export default function Devedores() {
       JSON.stringify({ filtro, busca, valorMinTexto, valorMaxTexto })
     );
   }, [filtro, busca, valorMinTexto, valorMaxTexto]);
+
+  // Busca ENQUANTO DIGITA: 300ms após parar de digitar, aplica o texto no
+  // filtro sozinho (sem precisar clicar em Pesquisar). Dá a sensação de busca
+  // instantânea. Os campos de valor continuam pelo botão/Enter.
+  useEffect(() => {
+    const termo = busca.trim() || undefined;
+    const t = setTimeout(() => {
+      setFiltro((f) => (f.busca === termo ? f : { ...f, busca: termo, page: 1 }));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [busca]);
+
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [detalheCnpj, setDetalheCnpj] = useState<string | null>(null);
   const [exportando, setExportando] = useState(false);
@@ -345,10 +357,10 @@ export default function Devedores() {
           >
             <div className="min-w-64 flex-1 space-y-1">
               <label className="text-xs font-medium text-muted-foreground">
-                Empresa (nome ou CNPJ) — opcional
+                Empresa (nome ou CNPJ) — busca enquanto você digita
               </label>
               <Input
-                placeholder="Vazio = todas as empresas dos filtros abaixo"
+                placeholder="Digite para buscar; vazio = todas as empresas dos filtros abaixo"
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
               />
